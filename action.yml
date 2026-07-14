@@ -1,0 +1,30 @@
+name: 'Fidel Design Validation'
+description: 'Validate rendered UI against Figma designs on every pull request. Posts severity-ranked issues with expected vs actual values. Zero-secret auth via GitHub OIDC.'
+branding:
+  icon: 'check-circle'
+  color: 'purple'
+
+inputs:
+  config-path:
+    description: 'Path to fidel.config.json'
+    required: false
+    default: 'fidel.config.json'
+  github-token:
+    description: 'GitHub token used to create or update the PR comment'
+    required: false
+    default: ${{ github.token }}
+  fail-on-score:
+    description: 'Fail the action if any successful check scores below this value (0-100)'
+    required: false
+    default: '0'
+
+outputs:
+  score:
+    description: 'Lowest score across successful checks'
+  issues-count:
+    description: 'Total issue count across successful checks'
+
+runs:
+  using: 'node20'
+  pre: 'dist/setup.js'
+  main: 'dist/index.js'
