@@ -132,14 +132,42 @@ character), and `{a,b,c}` brace expansion.
 |---|---|---|
 | `config-path` | `fidel.config.json` | Path to the config file. |
 | `github-token` | `${{ github.token }}` | Token used to create or update the pull-request comment. |
-| `fail-on-score` | `0` | Fail the action when a successful check scores below this value (0–100). `0` never fails on score. |
+| `fail-on-drift` | unset (off) | Block the pull request when Fidel confirms a violation — drift or off-token — against a fully verified result. An **incomplete** result blocks regardless of this input — see below. |
+| `fail-on-score` | `0` | **Deprecated — use `fail-on-drift`.** Fail the action when a successful check scores below this value (0–100). `0` never fails on score. Ignored when `fail-on-drift` is set. |
+
+### What the two inputs gate, and what they don't
+
+They gate **enforcement**, never **evidence**. `result` reports `fail_violation` whenever Fidel
+confirms a violation — drift or off-token — whether or not you chose to block on it, so "did
+Fidel find violations?" and "did the build fail?" stay separate questions.
+
+Neither input can make an **incomplete** result exit 0. If Fidel could not inspect the full
+required scope, the action exits non-zero and `result` is `incomplete`, with `partial-reasons`
+naming why. A result Fidel could not verify is never reported as a pass.
+
+`fail-on-score` is translated once into the same enforcement decision — it enforces only when
+a successful check actually scored below the threshold, exactly as before. Setting both inputs
+is not an error: `fail-on-drift` wins and a warning names the deprecated one.
 
 ## Action outputs
+
+Set on **every** exit path, including skips and fatal errors — an unset output reads as an
+empty string, and an empty string reads as "fine".
 
 | Output | Description |
 |---|---|
 | `score` | Lowest score across successful checks. |
 | `issues-count` | Total issue count across successful checks. |
+| `result` | `pass` · `fail_violation` · `incomplete` · `fail_operational`. |
+| `completeness` | `complete` · `partial` · `unverified` · `configuration_required` · `operational_failure`. |
+| `verified` | `true` only when the full required scope was inspected. |
+| `drift-count` | Confirmed drift: a declared token whose rendered value differs. Meaningful only when `verified` is `true`. |
+| `off-token-count` | Confirmed off-token violations: values using no design token at all. These are **not** drift and are never merged into `drift-count`. |
+| `confirmed-violation-count` | `drift-count` + `off-token-count`. This is what decides whether the run is clean. |
+| `unverified-count` | Checks that reached no verdict. |
+| `partial-reasons` | Comma-separated reasons the result is not complete. |
+| `retryable` | `true` when re-running could plausibly produce a different answer. |
+| `drift-enforcement` | `true` when confirmed drift blocks this run. Never affects whether an incomplete result blocks. |
 
 ## Versioning
 

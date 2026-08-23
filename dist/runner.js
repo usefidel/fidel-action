@@ -719,6 +719,16 @@ var ERROR_CODE_META = {
     userMessage: "This site's saved session has expired. Reconnect it to validate again.",
     shortLabel: "Session expired"
   },
+  CAPABILITY_UNAVAILABLE: {
+    retryable: false,
+    userMessage: "Validating sites that need a saved sign-in isn't available right now. This one's on us \u2014 contact support and we'll get it working.",
+    shortLabel: "Capability unavailable"
+  },
+  PROVIDER_REQUEST_REJECTED: {
+    retryable: false,
+    userMessage: "This validation couldn't be completed. Trying again won't change the result \u2014 contact support if you need it looked at.",
+    shortLabel: "Validation rejected"
+  },
   INVALID_REFERENCE_URL: {
     retryable: false,
     userMessage: "The reference URL is invalid. It must start with https:// and point to a real page.",
@@ -739,6 +749,11 @@ var ERROR_CODE_META = {
     userMessage: "Design system unavailable. The selected brand context is not available. Choose another or reconnect it in Settings.",
     shortLabel: "Brand context unavailable"
   },
+  DESIGN_SYSTEM_INCOMPATIBLE: {
+    retryable: false,
+    userMessage: "This design system can't be checked yet. We support Tailwind + shadcn today and are adding more \u2014 reconnect a supported design system, or check back soon.",
+    shortLabel: "Design system not supported yet"
+  },
   FLOW_STEP_FAILED: {
     retryable: false,
     userMessage: "A flow validation step failed. Check that all prototype transitions in the Figma file point to valid frames.",
@@ -756,8 +771,12 @@ var SUPABASE_URL = "https://ddufcgkwjcdseggjaiil.supabase.co";
 var SUPABASE_ANON_KEY = "sb_publishable_JCHgvBld-swO93653cDH9A_urU0alOo";
 var DEFAULT_TIMEOUT_MS = 9e4;
 var WARNING_PAYLOAD_BYTES = 2 * 1024 * 1024;
-async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, textMode = "styling-only", authMode = "pipeline-secret") {
-  const body = JSON.stringify({ figmaSpecs, domElements, textMode });
+async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, textMode = "styling-only", authMode = "pipeline-secret", options = {}) {
+  const bodyPayload = { figmaSpecs, domElements, textMode };
+  if (options.figmaUrl) bodyPayload.figmaUrl = options.figmaUrl;
+  if (options.liveUrl) bodyPayload.liveUrl = options.liveUrl;
+  if (options.idempotencyKey) bodyPayload.idempotencyKey = options.idempotencyKey;
+  const body = JSON.stringify(bodyPayload);
   const bodySize = Buffer.byteLength(body);
   if (bodySize > WARNING_PAYLOAD_BYTES) {
     console.log(
@@ -1784,7 +1803,167 @@ async function getSpecsWithCache(fileKey, nodeId, figmaToken, fetchFn, options) 
   return specs;
 }
 
+// src/result-completeness.ts
+function confirmedViolationCount(c) {
+  if (c.driftCount === null || c.offTokenCount === null) return null;
+  return c.driftCount + c.offTokenCount;
+}
+var EVIDENCE_STATES = [
+  "complete",
+  "partial",
+  "unverified",
+  "configuration_required",
+  "operational_failure"
+];
+var INCOMPLETE_REASONS = [
+  "css_variable_discovery_partial",
+  "css_variable_discovery_expected_only",
+  "declaration_provenance_unverified",
+  "unverified_token_values",
+  "storybook_story_cap",
+  "theme_anchor_unresolved",
+  "brand_unresolved",
+  "design_system_not_configured",
+  "result_read_failed",
+  "run_not_finalized",
+  "bypass_scan_incomplete",
+  "validation_not_attempted",
+  "completeness_metadata_missing",
+  "completeness_metadata_malformed"
+];
+var STATE_RANK = {
+  complete: 0,
+  partial: 1,
+  unverified: 2,
+  configuration_required: 3,
+  operational_failure: 4
+};
+function isEvidenceState(v) {
+  return typeof v === "string" && EVIDENCE_STATES.includes(v);
+}
+function isIncompleteReason(v) {
+  return typeof v === "string" && INCOMPLETE_REASONS.includes(v);
+}
+function worseState(a, b) {
+  return STATE_RANK[a] >= STATE_RANK[b] ? a : b;
+}
+function buildCompleteness(input) {
+  const reasons = normalizeReasons(input.reasons ?? []);
+  let state = input.state;
+  const driftCount = countOrNull(input.driftCount);
+  const offTokenCount = countOrNull(input.offTokenCount);
+  const unverifiedCount = countOrNull(input.unverifiedCount);
+  if (state === "complete" && reasons.length > 0) state = "partial";
+  if (state === "complete" && (driftCount === null || offTokenCount === null || unverifiedCount === null)) {
+    state = "unverified";
+    if (!reasons.includes("completeness_metadata_missing")) {
+      reasons.push("completeness_metadata_missing");
+    }
+  }
+  if (state !== "complete" && reasons.length === 0) reasons.push("completeness_metadata_missing");
+  return {
+    state,
+    reasons,
+    verified: state === "complete",
+    driftCount,
+    offTokenCount,
+    unverifiedCount,
+    retryable: input.retryable ?? defaultRetryable(state, reasons)
+  };
+}
+function ciOutcomeFor(c) {
+  if (c.state === "operational_failure") return "fail_operational";
+  if (c.state !== "complete") return "incomplete";
+  const confirmed = confirmedViolationCount(c);
+  if (confirmed === null) return "incomplete";
+  return confirmed > 0 ? "fail_violation" : "pass";
+}
+function summaryHeadline(c) {
+  switch (ciOutcomeFor(c)) {
+    case "pass":
+      return "Verification passed";
+    case "fail_violation":
+      return "Confirmed violations found";
+    case "fail_operational":
+      return "Validation failed to run";
+    case "incomplete":
+      return c.state === "configuration_required" ? "Configuration required" : "Verification incomplete";
+  }
+}
+var COMPLETENESS_ADVISORY_CODE = "result_completeness";
+function completenessFromAdvisories(advisories) {
+  if (!Array.isArray(advisories)) {
+    return buildCompleteness({ state: "unverified", reasons: ["completeness_metadata_missing"], retryable: false });
+  }
+  const markers = advisories.filter(
+    (a) => typeof a === "object" && a !== null && !Array.isArray(a) && a.code === COMPLETENESS_ADVISORY_CODE
+  );
+  if (markers.length === 0) {
+    return buildCompleteness({ state: "unverified", reasons: ["completeness_metadata_missing"], retryable: false });
+  }
+  const reasons = [];
+  let state = "complete";
+  let sawUnknownState = false;
+  for (const m of markers) {
+    if (isEvidenceState(m.state)) state = worseState(state, m.state);
+    else sawUnknownState = true;
+    if (isIncompleteReason(m.reason)) reasons.push(m.reason);
+    else if (m.reason !== "none") sawUnknownState = true;
+  }
+  if (sawUnknownState) {
+    reasons.push("completeness_metadata_malformed");
+    state = worseState(state, "unverified");
+  }
+  const first = markers[0];
+  return buildCompleteness({
+    state,
+    reasons,
+    // `get_shared_run` projects advisories down to {code, reason}, so an
+    // anonymous viewer receives no counts at all. That must read as
+    // unavailable, never as zero.
+    driftCount: countOrNull(first.driftCount),
+    offTokenCount: countOrNull(first.offTokenCount),
+    unverifiedCount: countOrNull(first.unverifiedCount),
+    retryable: typeof first.retryable === "boolean" ? first.retryable : void 0
+  });
+}
+function describeReasons(reasons) {
+  return reasons.map((r) => REASON_TEXT[r]);
+}
+var REASON_TEXT = {
+  css_variable_discovery_partial: "Some stylesheets could not be read, so parts of the page were not inspected.",
+  css_variable_discovery_expected_only: "No token values were resolved from the page \u2014 only the expected token names were known.",
+  declaration_provenance_unverified: "Token values were observed, but the stylesheet that declares them could not be read.",
+  unverified_token_values: "Some token values could not be compared and reached no verdict.",
+  storybook_story_cap: "The Storybook story cap was reached, so some stories were not inspected.",
+  theme_anchor_unresolved: "This team has more than one connected repository and none is designated, so no design system could be selected.",
+  brand_unresolved: "More than one brand exists and none was requested, so no brand could be selected.",
+  design_system_not_configured: "No design system is connected for this repository.",
+  result_read_failed: "The validation result could not be read back.",
+  run_not_finalized: "The validation did not reach a final state.",
+  bypass_scan_incomplete: "The design-system bypass scan did not cover every changed file.",
+  validation_not_attempted: "The validation was not attempted, so nothing was verified.",
+  completeness_metadata_missing: "The result carried no completeness information, so full coverage cannot be assumed.",
+  completeness_metadata_malformed: "The result carried unreadable completeness information."
+};
+function defaultRetryable(state, reasons) {
+  if (state === "configuration_required") return false;
+  if (state === "complete") return false;
+  return reasons.some(
+    (r) => r === "result_read_failed" || r === "run_not_finalized" || r === "css_variable_discovery_partial" || r === "validation_not_attempted"
+  );
+}
+function normalizeReasons(reasons) {
+  return Array.from(new Set(reasons)).sort();
+}
+function countOrNull(v) {
+  if (typeof v !== "number") return null;
+  if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0) return null;
+  return v;
+}
+
 // src/ds-check.ts
+var DEFAULT_APP_BASE_URL = "https://app.usefidel.com";
 var DEFAULT_POLL_TIMEOUT_MS = 9e4;
 var DEFAULT_POLL_INTERVAL_MS = 3e3;
 var FETCH_TIMEOUT_MS = 3e4;
@@ -1816,7 +1995,7 @@ async function runOneDesignSystemCheck(check, opts) {
     if (opts.viewport) {
       postBody.viewport = opts.viewport;
     }
-    const postResp = await fetchWithTimeout(opts.webValidateUrl, {
+    let postResp = await fetchWithTimeout(opts.webValidateUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1825,78 +2004,161 @@ async function runOneDesignSystemCheck(check, opts) {
       },
       body: JSON.stringify(postBody)
     });
-    const postJson = await safeJson(postResp);
+    let postJson = await safeJson(postResp);
+    if (postResp.status === 409 && postJson?.reason === "request_id_reused") {
+      const retrySalt = crypto.randomUUID().slice(0, 8);
+      const retryBody = { ...postBody, idempotencyKey: `${idempotencyKey}-${retrySalt}`.slice(0, 128) };
+      postResp = await fetchWithTimeout(opts.webValidateUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${opts.supabaseJwt}`,
+          apikey: opts.supabaseAnonKey
+        },
+        body: JSON.stringify(retryBody)
+      });
+      postJson = await safeJson(postResp);
+    }
     if (postResp.status === 402) {
-      return neutral(check, url, startedAt, describeSubscriptionDenial(postJson));
+      return notAttempted(check, url, startedAt, describeSubscriptionDenial(postJson));
     }
     if (postResp.status === 429) {
-      return neutral(check, url, startedAt, "Daily validation limit reached \u2014 skipped.");
+      return notAttempted(check, url, startedAt, "Daily validation limit reached \u2014 skipped.");
     }
     if (postResp.status === 422) {
       const errorCode = typeof postJson?.errorCode === "string" ? postJson.errorCode : void 0;
       if (errorCode === "SESSION_EXPIRED") {
-        return neutral(check, url, startedAt, "Connected environment session expired \u2014 reconnect in Fidel settings.");
+        return notAttempted(check, url, startedAt, "Connected environment session expired \u2014 reconnect in Fidel settings.");
       }
-      if (errorCode === "DESIGN_SYSTEM_CONTEXT_NOT_AVAILABLE") {
-        return neutral(
+      if (errorCode === "DESIGN_SYSTEM_BRAND_NOT_RESOLVED") {
+        const count = typeof postJson?.candidateCount === "number" ? postJson.candidateCount : void 0;
+        const suffix = count !== void 0 ? ` (${count} brands connected)` : "";
+        return configurationRequired(
           check,
           url,
           startedAt,
-          check.brandKey ? `Unknown or archived brand context "${check.brandKey}" for this repo \u2014 skipped.` : "No active design-system context for this repo \u2014 skipped."
+          "brand_unresolved",
+          postJson?.reason === "requested_brand_absent" ? `The requested brand has no connected design system${suffix}. Designate the intended brand context in Fidel settings.` : `More than one brand is connected and none was requested${suffix}. Designate the intended brand context in Fidel settings.`
+        );
+      }
+      if (errorCode === "DESIGN_SYSTEM_CONTEXT_NOT_AVAILABLE") {
+        return configurationRequired(
+          check,
+          url,
+          startedAt,
+          "brand_unresolved",
+          check.brandKey ? `Unknown or archived brand context "${check.brandKey}" for this repo. Designate the intended brand context in Fidel settings.` : "No active design-system context for this repo. Designate one in Fidel settings."
         );
       }
       if (errorCode === "DESIGN_SYSTEM_NOT_AVAILABLE") {
-        return neutral(check, url, startedAt, "No parsed design-system theme connected for this repo \u2014 skipped.");
+        return configurationRequired(
+          check,
+          url,
+          startedAt,
+          "design_system_not_configured",
+          "No parsed design-system theme is connected for this repo. Connect one in Fidel settings."
+        );
       }
-      return neutral(check, url, startedAt, "Design system unavailable \u2014 skipped.");
+      return configurationRequired(
+        check,
+        url,
+        startedAt,
+        "design_system_not_configured",
+        "The design system for this repo could not be resolved. Check the connection in Fidel settings."
+      );
     }
     if (postResp.status === 401) {
-      return neutral(check, url, startedAt, "Not authenticated with Fidel \u2014 skipped.");
+      return notAttempted(check, url, startedAt, "Not authenticated with Fidel \u2014 skipped.");
     }
     if (postResp.status === 400) {
       const message = typeof postJson?.error === "string" ? postJson.error : "Invalid request";
-      return { name: check.name, brandKey: check.brandKey, url, status: "failed", reason: message, elapsedMs: Date.now() - startedAt };
+      return operationalFailure(check, url, startedAt, message);
     }
     if (!postResp.ok || !postJson?.runId) {
+      return operationalFailure(check, url, startedAt, `web-validate returned HTTP ${postResp.status}`);
+    }
+    const runId = postJson.runId;
+    if (postJson.status === "complete") {
+      return await buildCompletedResult(check, url, runId, startedAt, opts);
+    }
+    const pollResult = await pollForCompletion(runId, opts);
+    if (pollResult === "timeout") {
       return {
         name: check.name,
         brandKey: check.brandKey,
         url,
-        status: "failed",
-        reason: `web-validate returned HTTP ${postResp.status}`,
+        status: "neutral",
+        runId,
+        reason: "Still processing when the check timed out \u2014 nothing was verified. Re-run to get a result.",
+        ...completed(buildCompleteness({
+          state: "unverified",
+          reasons: ["run_not_finalized"],
+          retryable: true
+        })),
         elapsedMs: Date.now() - startedAt
       };
     }
-    const runId = postJson.runId;
-    if (postJson.status === "complete") {
-      return await buildSuccessResult(check, url, runId, startedAt, opts);
-    }
-    const pollResult = await pollForCompletion(runId, opts);
-    if (pollResult === "timeout") {
-      return neutral(check, url, startedAt, "Still processing \u2014 check back on the report link.", runId);
-    }
     if (pollResult === "error") {
-      return { name: check.name, brandKey: check.brandKey, url, status: "failed", runId, reason: "Validation failed while processing.", elapsedMs: Date.now() - startedAt };
+      return operationalFailure(check, url, startedAt, "Validation failed while processing.", runId);
     }
-    return await buildSuccessResult(check, url, runId, startedAt, opts);
+    return await buildCompletedResult(check, url, runId, startedAt, opts);
   } catch (err) {
+    return operationalFailure(check, url, startedAt, err.message || String(err));
+  }
+}
+async function buildCompletedResult(check, url, runId, startedAt, opts) {
+  const read = await fetchRunRow(runId, opts);
+  if (!read.ok) {
     return {
       name: check.name,
       brandKey: check.brandKey,
       url,
-      status: "failed",
-      reason: err.message || String(err),
+      status: "neutral",
+      runId,
+      reason: "The validation ran but its result could not be read back \u2014 nothing was verified.",
+      ...completed(buildCompleteness({
+        state: "unverified",
+        reasons: ["result_read_failed"],
+        retryable: true
+      })),
       elapsedMs: Date.now() - startedAt
     };
   }
-}
-async function buildSuccessResult(check, url, runId, startedAt, opts) {
-  const runRow = await fetchRunRow(runId, opts);
-  const tokenDriftCount = runRow?.issue_count ?? 0;
+  const runRow = read.row;
+  if (runRow.status === "error") {
+    return operationalFailure(check, url, startedAt, "The validation did not complete.", runId);
+  }
+  if (runRow.status !== "complete") {
+    return {
+      name: check.name,
+      brandKey: check.brandKey,
+      url,
+      status: "neutral",
+      runId,
+      reason: `The validation is still "${runRow.status}" \u2014 nothing was verified.`,
+      ...completed(buildCompleteness({
+        state: "unverified",
+        reasons: ["run_not_finalized"],
+        retryable: true
+      })),
+      elapsedMs: Date.now() - startedAt
+    };
+  }
+  let completeness = completenessFromAdvisories(runRow.advisories);
+  if (completeness.verified && typeof runRow.issue_count !== "number") {
+    completeness = buildCompleteness({
+      state: "unverified",
+      reasons: ["result_read_failed"],
+      driftCount: completeness.driftCount,
+      unverifiedCount: completeness.unverifiedCount,
+      retryable: true
+    });
+  }
+  const tokenDriftCount = runRow.issue_count ?? 0;
   let tracked;
   let seen;
   let unresolved;
-  const contextId = runRow?.design_system_context_id;
+  const contextId = runRow.design_system_context_id;
   if (contextId) {
     const rollup = await fetchContextRollupCounts(contextId, opts);
     if (rollup) {
@@ -1906,7 +2168,8 @@ async function buildSuccessResult(check, url, runId, startedAt, opts) {
     }
   }
   const token = await mintShareToken(runId, opts);
-  const reportUrl = token ? `https://app.usefidel.com/report/${runId}?t=${token}` : `https://app.usefidel.com/report/${runId}`;
+  const appBase = (opts.appBaseUrl || DEFAULT_APP_BASE_URL).replace(/\/+$/, "");
+  const reportUrl = token ? `${appBase}/report/${runId}?t=${token}` : `${appBase}/report/${runId}`;
   return {
     name: check.name,
     brandKey: check.brandKey,
@@ -1918,15 +2181,64 @@ async function buildSuccessResult(check, url, runId, startedAt, opts) {
     tracked,
     seen,
     unresolved,
+    ...completed(completeness),
     elapsedMs: Date.now() - startedAt
   };
 }
-function neutral(check, url, startedAt, reason, runId) {
-  return { name: check.name, brandKey: check.brandKey, url, status: "neutral", reason, runId, elapsedMs: Date.now() - startedAt };
+function completed(completeness) {
+  return { completeness, ciOutcome: ciOutcomeFor(completeness) };
+}
+function notAttempted(check, url, startedAt, reason, runId) {
+  return {
+    name: check.name,
+    brandKey: check.brandKey,
+    url,
+    status: "neutral",
+    reason,
+    runId,
+    ...completed(buildCompleteness({
+      state: "unverified",
+      reasons: ["validation_not_attempted"],
+      retryable: true
+    })),
+    elapsedMs: Date.now() - startedAt
+  };
+}
+function configurationRequired(check, url, startedAt, reason, message) {
+  return {
+    name: check.name,
+    brandKey: check.brandKey,
+    url,
+    status: "neutral",
+    reason: message,
+    ...completed(buildCompleteness({
+      state: "configuration_required",
+      reasons: [reason],
+      retryable: false
+    })),
+    elapsedMs: Date.now() - startedAt
+  };
+}
+function operationalFailure(check, url, startedAt, reason, runId) {
+  return {
+    name: check.name,
+    brandKey: check.brandKey,
+    url,
+    status: "failed",
+    runId,
+    reason,
+    ...completed(buildCompleteness({
+      state: "operational_failure",
+      reasons: ["run_not_finalized"],
+      retryable: true
+    })),
+    elapsedMs: Date.now() - startedAt
+  };
 }
 function describeSubscriptionDenial(json) {
   const reason = typeof json?.reason === "string" ? json.reason : void 0;
   if (reason === "requires_pro_plan") return "Design-system validation requires a Pro plan \u2014 skipped.";
+  if (reason === "ds_validation_limit") return "Monthly design-system validation limit reached for this plan \u2014 skipped.";
   if (reason === "validation_limit") return "Monthly validation limit reached \u2014 skipped.";
   if (reason === "no_subscription") return "No active subscription \u2014 skipped.";
   if (reason === "beta_expired") return "Beta access expired \u2014 skipped.";
@@ -1937,9 +2249,9 @@ async function pollForCompletion(runId, opts) {
   const intervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const row = await fetchRunRow(runId, opts);
-    if (row?.status === "complete") return "complete";
-    if (row?.status === "error") return "error";
+    const read = await fetchRunRow(runId, opts);
+    if (read.ok && read.row.status === "complete") return "complete";
+    if (read.ok && read.row.status === "error") return "error";
     await sleep(intervalMs);
   }
   return "timeout";
@@ -1947,7 +2259,7 @@ async function pollForCompletion(runId, opts) {
 async function fetchRunRow(runId, opts) {
   try {
     const resp = await fetchWithTimeout(
-      `${opts.supabaseUrl}/rest/v1/validation_runs?id=eq.${encodeURIComponent(runId)}&select=status,issue_count,design_system_context_id`,
+      `${opts.supabaseUrl}/rest/v1/validation_runs?id=eq.${encodeURIComponent(runId)}&select=status,issue_count,design_system_context_id,advisories`,
       {
         method: "GET",
         headers: {
@@ -1956,11 +2268,12 @@ async function fetchRunRow(runId, opts) {
         }
       }
     );
-    if (!resp.ok) return null;
+    if (!resp.ok) return { ok: false, reason: "http_error" };
     const rows = await resp.json();
-    return rows[0] ?? null;
+    const row = rows[0];
+    return row ? { ok: true, row } : { ok: false, reason: "absent" };
   } catch {
-    return null;
+    return { ok: false, reason: "threw" };
   }
 }
 async function fetchContextRollupCounts(contextId, opts) {
@@ -2117,23 +2430,73 @@ async function runDesignSystemLegIfConfigured(outputFile, templateVariables, hea
       supabaseJwt,
       templateVariables,
       repoFullName: repository,
-      headSha: headSha ?? ""
+      headSha: headSha ?? "",
+      // Environment-correct report link. Unset on prod (the default is prod),
+      // set to the staging web app by fidel-runner.yml when ENV_TAG=staging —
+      // otherwise a staging run links to a prod report that does not exist.
+      appBaseUrl: process.env.APP_BASE_URL
     });
   } catch (err) {
     console.warn(`[fidel-runner] design-system leg crashed (non-fatal): ${err.message}`);
     return;
   }
-  const successCount = dsResults.filter((r) => r.status === "success").length;
-  const neutralCount = dsResults.filter((r) => r.status === "neutral").length;
-  const failedCount = dsResults.filter((r) => r.status === "failed").length;
+  const aggregate = aggregateDsOutcome(dsResults);
   console.log(
-    `[fidel-runner] Design-system leg completed: ${successCount} succeeded, ${neutralCount} neutral, ${failedCount} failed`
+    `[fidel-runner] Design-system leg: ${summaryHeadline(aggregate)} \u2014 ` + dsResults.map((r) => `${r.name}=${r.completeness.state}`).join(" ")
   );
+  for (const line of describeReasons(aggregate.reasons)) {
+    console.log(`[fidel-runner]   \xB7 ${line}`);
+  }
   if (outputFile) {
     const dsResultsB64 = Buffer.from(JSON.stringify(dsResults)).toString("base64");
     import_fs4.default.appendFileSync(outputFile, `ds_results=${dsResultsB64}
 `);
+    import_fs4.default.appendFileSync(outputFile, `ds_result=${ciOutcomeFor(aggregate)}
+`);
+    import_fs4.default.appendFileSync(outputFile, `ds_completeness=${aggregate.state}
+`);
+    import_fs4.default.appendFileSync(outputFile, `ds_verified=${aggregate.verified}
+`);
+    import_fs4.default.appendFileSync(outputFile, `ds_drift_count=${aggregate.driftCount}
+`);
+    import_fs4.default.appendFileSync(outputFile, `ds_off_token_count=${aggregate.offTokenCount}
+`);
+    import_fs4.default.appendFileSync(
+      outputFile,
+      `ds_confirmed_violation_count=${confirmedViolationCount(aggregate)}
+`
+    );
+    import_fs4.default.appendFileSync(outputFile, `ds_unverified_count=${aggregate.unverifiedCount}
+`);
+    import_fs4.default.appendFileSync(outputFile, `ds_partial_reasons=${aggregate.reasons.join(",")}
+`);
+    import_fs4.default.appendFileSync(outputFile, `ds_retryable=${aggregate.retryable}
+`);
   }
+}
+function aggregateDsOutcome(results) {
+  if (results.length === 0) {
+    return buildCompleteness({ state: "unverified", reasons: ["validation_not_attempted"], retryable: false });
+  }
+  let state = "complete";
+  const reasons = [];
+  let driftCount = 0;
+  let offTokenCount = 0;
+  let unverifiedCount = 0;
+  let retryable = false;
+  for (const r of results) {
+    state = worseState(state, r.completeness.state);
+    reasons.push(...r.completeness.reasons);
+    driftCount = addCounts(driftCount, r.completeness.driftCount);
+    offTokenCount = addCounts(offTokenCount, r.completeness.offTokenCount);
+    unverifiedCount = addCounts(unverifiedCount, r.completeness.unverifiedCount);
+    retryable = retryable || r.completeness.retryable;
+  }
+  return buildCompleteness({ state, reasons, driftCount, offTokenCount, unverifiedCount, retryable });
+}
+function addCounts(a, b) {
+  if (a === null || b === null) return null;
+  return a + b;
 }
 async function main() {
   const configJson = process.env.CONFIG_JSON;
@@ -2239,8 +2602,9 @@ async function main() {
   );
   console.log(`[fidel-runner] Running ${resolvedChecks.length} check(s)`);
   const results = [];
+  const repositoryFullName = process.env.REPOSITORY || "";
   for (const check of resolvedChecks) {
-    results.push(await runCheck(check, figmaToken, pipelineUrl, supabaseJwt, supabaseAnonKey || ""));
+    results.push(await runCheck(check, figmaToken, pipelineUrl, supabaseJwt, supabaseAnonKey || "", repositoryFullName, headSha || ""));
   }
   const resultsB64 = Buffer.from(JSON.stringify(results)).toString("base64");
   const successCount = results.filter((r) => r.status === "success").length;
@@ -2265,7 +2629,7 @@ async function main() {
     process.exit(1);
   }
 }
-async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey) {
+async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey, repositoryFullName, headSha) {
   const startedAt = Date.now();
   console.log(`[fidel-runner] Running check "${check.name}"`);
   try {
@@ -2310,13 +2674,20 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey) 
     if (domElements.length === 0) {
       throw new Error("Snapshot returned zero DOM elements");
     }
+    const idempotencyKey = await deriveFigmaIdempotencyKey(
+      repositoryFullName,
+      headSha,
+      check.figma,
+      check.url
+    );
     const pipeline = await runPipeline(
       figmaSpecs,
       domElements,
       pipelineUrl,
       supabaseToken,
       check.textMode,
-      "supabase-jwt"
+      "supabase-jwt",
+      { figmaUrl: check.figma, liveUrl: check.url, idempotencyKey }
     );
     const elapsedMs = Date.now() - startedAt;
     console.log(
@@ -2364,6 +2735,13 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey) 
       elapsedMs
     };
   }
+}
+async function deriveFigmaIdempotencyKey(repoFullName, headSha, figmaUrl, liveUrl) {
+  const material = `figma:${repoFullName}:${headSha}:${figmaUrl}:${liveUrl}`;
+  const encoded = new TextEncoder().encode(material);
+  const digest = await crypto.subtle.digest("SHA-256", encoded);
+  const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  return `figma-${hex}`.slice(0, 128);
 }
 function deriveErrorPayload(error, message) {
   const withPayload = error;

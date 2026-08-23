@@ -927,28 +927,282 @@
     }
     return result;
   }
-  function captureCssVariables() {
-    const vars = {};
-    for (const sheet of Array.from(document.styleSheets)) {
+  var CSSVAR_DEFAULT_CAPS = {
+    maxStyleSheets: 200,
+    maxRules: 5e4,
+    maxDepth: 16,
+    maxElements: 64,
+    maxNames: 5e3,
+    maxMs: 5e3
+  };
+  var THEME_SCOPE_SELECTORS = [".dark", ".light", "[data-theme]", "[data-mode]", "[data-color-scheme]"];
+  function isGroupingRule(rule) {
+    return typeof rule.cssRules !== "undefined";
+  }
+  function conditionMatches(rule, conditionText) {
+    try {
+      if (typeof CSSMediaRule !== "undefined" && rule instanceof CSSMediaRule) {
+        return window.matchMedia(conditionText).matches;
+      }
+      if (typeof CSSSupportsRule !== "undefined" && rule instanceof CSSSupportsRule) {
+        return typeof CSS !== "undefined" && typeof CSS.supports === "function" ? CSS.supports(conditionText) : true;
+      }
+    } catch {
+      return true;
+    }
+    return true;
+  }
+  function captureCssVariableState(options = {}) {
+    const caps = { ...CSSVAR_DEFAULT_CAPS, ...options };
+    const startedAt = Date.now();
+    const warnings = [];
+    const declarations = [];
+    const discovered = /* @__PURE__ */ new Set();
+    const scopeSelectorsFound = /* @__PURE__ */ new Set();
+    let sheetsSeen = 0;
+    let rulesSeen = 0;
+    let truncated = false;
+    let provenanceUnverified = false;
+    const note = (kind, detail) => {
+      truncated = kind !== "stylesheet_inaccessible";
+      if (warnings.length < 100) warnings.push({ kind, detail });
+    };
+    const outOfTime = () => Date.now() - startedAt > caps.maxMs;
+    const visitRules = (rules, href, layers, conditions, active, depth) => {
+      if (depth > caps.maxDepth) {
+        note("cap_depth", `nesting deeper than ${caps.maxDepth} in ${href ?? "<style>"}`);
+        return;
+      }
+      for (const rule of Array.from(rules)) {
+        if (rulesSeen++ >= caps.maxRules) {
+          note("cap_rules", `stopped after ${caps.maxRules} rules`);
+          return;
+        }
+        if (outOfTime()) {
+          note("cap_time", `stopped after ${caps.maxMs}ms during traversal`);
+          return;
+        }
+        if (typeof CSSStyleRule !== "undefined" && rule instanceof CSSStyleRule) {
+          const selector = rule.selectorText ?? "";
+          for (const propName of Array.from(rule.style)) {
+            if (!propName.startsWith("--")) continue;
+            if (discovered.size >= caps.maxNames) {
+              note("cap_names", `stopped after ${caps.maxNames} distinct names`);
+              break;
+            }
+            discovered.add(propName);
+            declarations.push({
+              name: propName,
+              value: rule.style.getPropertyValue(propName).trim(),
+              selector,
+              href,
+              layers: layers.slice(),
+              conditions: conditions.slice(),
+              active
+            });
+            if (selector && !/^(:root|html)$/i.test(selector.trim())) {
+              scopeSelectorsFound.add(selector);
+            }
+          }
+        }
+        if (isGroupingRule(rule)) {
+          let nested = null;
+          try {
+            nested = rule.cssRules;
+          } catch {
+            nested = null;
+          }
+          if (!nested) continue;
+          const layerName = rule.name;
+          const conditionText = rule.conditionText;
+          const nextLayers = typeof layerName === "string" && layerName ? layers.concat(layerName) : layers;
+          const nextConditions = typeof conditionText === "string" && conditionText ? conditions.concat(conditionText) : conditions;
+          const nextActive = typeof conditionText === "string" && conditionText ? active && conditionMatches(rule, conditionText) : active;
+          visitRules(nested, href, nextLayers, nextConditions, nextActive, depth + 1);
+        }
+        if (typeof CSSImportRule !== "undefined" && rule instanceof CSSImportRule) {
+          if (rule.styleSheet) visitSheet(rule.styleSheet, depth + 1);
+        }
+      }
+    };
+    const visitSheet = (sheet, depth = 0) => {
+      if (sheetsSeen++ >= caps.maxStyleSheets) {
+        note("cap_stylesheets", `stopped after ${caps.maxStyleSheets} stylesheets`);
+        return;
+      }
       let rules;
       try {
         rules = sheet.cssRules;
       } catch {
-        continue;
+        provenanceUnverified = true;
+        note("stylesheet_inaccessible", sheet.href ?? "<unknown href>");
+        return;
       }
-      for (const rule of Array.from(rules)) {
-        if (rule instanceof CSSStyleRule) {
-          for (const propName of Array.from(rule.style)) {
-            if (propName.startsWith("--")) {
-              vars[propName] = rule.style.getPropertyValue(propName).trim();
-            }
-          }
+      visitRules(rules, sheet.href, [], [], true, depth);
+    };
+    const allSheets = [];
+    try {
+      allSheets.push(...Array.from(document.styleSheets));
+    } catch {
+    }
+    try {
+      const adopted = document.adoptedStyleSheets;
+      if (adopted) allSheets.push(...Array.from(adopted));
+    } catch {
+    }
+    for (const sheet of allSheets) visitSheet(sheet);
+    const shadowHosts = [];
+    try {
+      for (const el of Array.from(document.querySelectorAll("*"))) {
+        const root = el.shadowRoot;
+        if (!root) continue;
+        shadowHosts.push(el);
+        if (shadowHosts.length >= caps.maxElements) break;
+        try {
+          const adopted = root.adoptedStyleSheets;
+          if (adopted) for (const s of Array.from(adopted)) visitSheet(s);
+        } catch {
+        }
+        try {
+          for (const s of Array.from(root.styleSheets ?? [])) visitSheet(s);
+        } catch {
         }
       }
+    } catch {
     }
-    return vars;
+    const expected = (options.expectedNames ?? []).map((n) => n.startsWith("--") ? n : `--${n}`);
+    const names = Array.from(/* @__PURE__ */ new Set([...expected, ...discovered])).slice(0, caps.maxNames);
+    const resolved = {};
+    const scoped = {};
+    const scopes = {};
+    const readOn = (el) => {
+      try {
+        return window.getComputedStyle(el);
+      } catch {
+        return null;
+      }
+    };
+    const rootStyle = readOn(document.documentElement);
+    if (rootStyle) {
+      for (const name of names) {
+        let value;
+        try {
+          value = rootStyle.getPropertyValue(name).trim();
+        } catch {
+          continue;
+        }
+        if (value === "") continue;
+        resolved[name] = value;
+        scopes[name] = { kind: "root", selector: ":root" };
+      }
+    }
+    const declaringSelectors = /* @__PURE__ */ new Map();
+    for (const d of declarations) {
+      if (!d.active || !d.selector) continue;
+      const list = declaringSelectors.get(d.name);
+      if (list) list.push(d.selector);
+      else declaringSelectors.set(d.name, [d.selector]);
+    }
+    const safeMatches = (el, selector) => {
+      try {
+        return el.matches(selector);
+      } catch {
+        return false;
+      }
+    };
+    const attribute = (el, name, scope) => {
+      const selectors = declaringSelectors.get(name);
+      if (!selectors || selectors.length === 0) return scope;
+      if (selectors.some((s) => safeMatches(el, s))) return scope;
+      let ancestor = el.parentElement;
+      let hops = 0;
+      while (ancestor && hops++ < caps.maxDepth) {
+        for (let i = selectors.length - 1; i >= 0; i--) {
+          if (safeMatches(ancestor, selectors[i])) {
+            return {
+              kind: "inherited",
+              selector: selectors[i],
+              source: selectors[i],
+              element: scope.selector
+            };
+          }
+        }
+        ancestor = ancestor.parentElement;
+      }
+      return scope;
+    };
+    const resolveScoped = (el, scope) => {
+      const style = readOn(el);
+      if (!style) return;
+      for (const name of names) {
+        if (Object.prototype.hasOwnProperty.call(resolved, name)) continue;
+        if (Object.prototype.hasOwnProperty.call(scoped, name)) continue;
+        let value;
+        try {
+          value = style.getPropertyValue(name).trim();
+        } catch {
+          continue;
+        }
+        if (value === "") continue;
+        const attributed = attribute(el, name, scope);
+        scoped[name] = { value, scope: attributed };
+        scopes[name] = attributed;
+      }
+    };
+    const scopeTargets = [];
+    const pushTarget = (el, scope) => {
+      if (!el) return;
+      if (el === document.documentElement) return;
+      if (scopeTargets.length >= caps.maxElements) return;
+      if (scopeTargets.some((t) => t.el === el)) return;
+      scopeTargets.push({ el, scope });
+    };
+    pushTarget(document.body, { kind: "body", selector: "body" });
+    const themeSelectors = THEME_SCOPE_SELECTORS.concat(options.scopeSelectors ?? []);
+    for (const selector of themeSelectors) {
+      try {
+        for (const el of Array.from(document.querySelectorAll(selector))) {
+          pushTarget(el, { kind: "scoped", selector });
+        }
+      } catch {
+      }
+    }
+    for (const selector of scopeSelectorsFound) {
+      if (scopeTargets.length >= caps.maxElements) break;
+      try {
+        for (const el of Array.from(document.querySelectorAll(selector))) {
+          pushTarget(el, { kind: "scoped", selector });
+        }
+      } catch {
+      }
+    }
+    for (const host of shadowHosts) {
+      pushTarget(host, { kind: "shadow", selector: host.tagName.toLowerCase() });
+    }
+    if (scopeTargets.length >= caps.maxElements) {
+      note("cap_elements", `stopped after ${caps.maxElements} scope elements`);
+    }
+    for (const target of scopeTargets) {
+      if (outOfTime()) {
+        note("cap_time", `stopped after ${caps.maxMs}ms during resolution`);
+        break;
+      }
+      resolveScoped(target.el, target.scope);
+    }
+    let completeness;
+    if (provenanceUnverified || truncated) {
+      completeness = "partial";
+    } else if (discovered.size === 0 && expected.length > 0) {
+      completeness = "expected_only";
+    } else {
+      completeness = "complete";
+    }
+    return { resolved, scoped, scopes, declarations, warnings, completeness, provenanceUnverified };
+  }
+  function captureCssVariables(expectedNames) {
+    return captureCssVariableState({ expectedNames }).resolved;
   }
 
   // src/snapshot-bundle.ts
-  window.__fidel_snapshot = { snapshotDOM, capturePseudoStateStyles, isInteractiveElement, captureCssVariables };
+  window.__fidel_snapshot = { snapshotDOM, capturePseudoStateStyles, isInteractiveElement, captureCssVariables, captureCssVariableState };
 })();

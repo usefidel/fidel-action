@@ -13,8 +13,14 @@ inputs:
     description: 'GitHub token used to create or update the PR comment'
     required: false
     default: ${{ github.token }}
+  fail-on-drift:
+    description: 'Block the PR when Fidel confirms drift against a fully verified result. Default off. An incomplete result blocks regardless of this input.'
+    required: false
+    # Deliberately NO default. An unset input reads as '' and must stay
+    # distinguishable from an explicit 'false', or every existing consumer of
+    # fail-on-score would look like a conflicting configuration and be ignored.
   fail-on-score:
-    description: 'Fail the action if any successful check scores below this value (0-100)'
+    description: 'DEPRECATED, use fail-on-drift. Fail the action if any successful check scores below this value (0-100). Ignored when fail-on-drift is set.'
     required: false
     default: '0'
 
@@ -23,6 +29,31 @@ outputs:
     description: 'Lowest score across successful checks'
   issues-count:
     description: 'Total issue count across successful checks'
+  # ── Result honesty (plan 051 P1-5) ──────────────────────────────────────
+  # Set on EVERY exit path, including skips and fatal errors. An unset output
+  # is an empty string, and an empty string reads as "fine" — so a consumer
+  # must always find these populated.
+  result:
+    description: 'CI outcome: pass | fail_violation | incomplete | fail_operational'
+  completeness:
+    description: 'Evidence state: complete | partial | unverified | configuration_required | operational_failure'
+  verified:
+    description: 'true only when the full required scope was inspected'
+  drift-count:
+    description: 'Confirmed drift: a declared token whose rendered value differs. Meaningful only when verified is true'
+  off-token-count:
+    description: 'Confirmed off-token violations: values using no design token. NOT drift, and never merged into drift-count'
+  confirmed-violation-count:
+    description: 'drift-count + off-token-count. This is what decides success eligibility'
+  unverified-count:
+    description: 'Checks that reached no verdict'
+  partial-reasons:
+    description: 'Comma-separated closed-enum reasons the result is not complete'
+  retryable:
+    description: 'true when re-running could plausibly produce a different answer'
+  # ── Drift enforcement (plan 051 P1-6) ───────────────────────────────────
+  drift-enforcement:
+    description: 'true when confirmed drift blocks this run. Never affects whether an incomplete result blocks'
 
 runs:
   using: 'node20'

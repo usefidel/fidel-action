@@ -8,6 +8,10 @@ var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
@@ -24,6 +28,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // node_modules/@actions/core/lib/utils.js
 var require_utils = __commonJS({
@@ -20132,7 +20137,7 @@ var require_dist_node2 = __commonJS({
     var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
     var __getOwnPropNames2 = Object.getOwnPropertyNames;
     var __hasOwnProp2 = Object.prototype.hasOwnProperty;
-    var __export = (target, all) => {
+    var __export2 = (target, all) => {
       for (var name in all)
         __defProp2(target, name, { get: all[name], enumerable: true });
     };
@@ -20144,12 +20149,12 @@ var require_dist_node2 = __commonJS({
       }
       return to;
     };
-    var __toCommonJS = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
+    var __toCommonJS2 = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
     var dist_src_exports = {};
-    __export(dist_src_exports, {
+    __export2(dist_src_exports, {
       endpoint: () => endpoint
     });
-    module2.exports = __toCommonJS(dist_src_exports);
+    module2.exports = __toCommonJS2(dist_src_exports);
     var import_universal_user_agent = require_dist_node();
     var VERSION = "9.0.6";
     var userAgent = `octokit-endpoint.js/${VERSION} ${(0, import_universal_user_agent.getUserAgent)()}`;
@@ -20572,7 +20577,7 @@ var require_dist_node4 = __commonJS({
     var __getOwnPropNames2 = Object.getOwnPropertyNames;
     var __getProtoOf2 = Object.getPrototypeOf;
     var __hasOwnProp2 = Object.prototype.hasOwnProperty;
-    var __export = (target, all) => {
+    var __export2 = (target, all) => {
       for (var name in all)
         __defProp2(target, name, { get: all[name], enumerable: true });
     };
@@ -20592,12 +20597,12 @@ var require_dist_node4 = __commonJS({
       isNodeMode || !mod || !mod.__esModule ? __defProp2(target, "default", { value: mod, enumerable: true }) : target,
       mod
     ));
-    var __toCommonJS = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
+    var __toCommonJS2 = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
     var dist_src_exports = {};
-    __export(dist_src_exports, {
+    __export2(dist_src_exports, {
       RequestError: () => RequestError
     });
-    module2.exports = __toCommonJS(dist_src_exports);
+    module2.exports = __toCommonJS2(dist_src_exports);
     var import_deprecation = require_dist_node3();
     var import_once = __toESM2(require_once());
     var logOnceCode = (0, import_once.default)((deprecation) => console.warn(deprecation));
@@ -20662,7 +20667,7 @@ var require_dist_node5 = __commonJS({
     var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
     var __getOwnPropNames2 = Object.getOwnPropertyNames;
     var __hasOwnProp2 = Object.prototype.hasOwnProperty;
-    var __export = (target, all) => {
+    var __export2 = (target, all) => {
       for (var name in all)
         __defProp2(target, name, { get: all[name], enumerable: true });
     };
@@ -20674,12 +20679,12 @@ var require_dist_node5 = __commonJS({
       }
       return to;
     };
-    var __toCommonJS = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
+    var __toCommonJS2 = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
     var dist_src_exports = {};
-    __export(dist_src_exports, {
+    __export2(dist_src_exports, {
       request: () => request
     });
-    module2.exports = __toCommonJS(dist_src_exports);
+    module2.exports = __toCommonJS2(dist_src_exports);
     var import_endpoint = require_dist_node2();
     var import_universal_user_agent = require_dist_node();
     var VERSION = "8.4.1";
@@ -20872,7 +20877,7 @@ var require_dist_node6 = __commonJS({
     var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
     var __getOwnPropNames2 = Object.getOwnPropertyNames;
     var __hasOwnProp2 = Object.prototype.hasOwnProperty;
-    var __export = (target, all) => {
+    var __export2 = (target, all) => {
       for (var name in all)
         __defProp2(target, name, { get: all[name], enumerable: true });
     };
@@ -20884,14 +20889,14 @@ var require_dist_node6 = __commonJS({
       }
       return to;
     };
-    var __toCommonJS = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
+    var __toCommonJS2 = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
     var index_exports = {};
-    __export(index_exports, {
+    __export2(index_exports, {
       GraphqlResponseError: () => GraphqlResponseError,
       graphql: () => graphql2,
       withCustomRequest: () => withCustomRequest
     });
-    module2.exports = __toCommonJS(index_exports);
+    module2.exports = __toCommonJS2(index_exports);
     var import_request3 = require_dist_node5();
     var import_universal_user_agent = require_dist_node();
     var VERSION = "7.1.1";
@@ -21009,7 +21014,7 @@ var require_dist_node7 = __commonJS({
     var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
     var __getOwnPropNames2 = Object.getOwnPropertyNames;
     var __hasOwnProp2 = Object.prototype.hasOwnProperty;
-    var __export = (target, all) => {
+    var __export2 = (target, all) => {
       for (var name in all)
         __defProp2(target, name, { get: all[name], enumerable: true });
     };
@@ -21021,12 +21026,12 @@ var require_dist_node7 = __commonJS({
       }
       return to;
     };
-    var __toCommonJS = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
+    var __toCommonJS2 = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
     var dist_src_exports = {};
-    __export(dist_src_exports, {
+    __export2(dist_src_exports, {
       createTokenAuth: () => createTokenAuth
     });
-    module2.exports = __toCommonJS(dist_src_exports);
+    module2.exports = __toCommonJS2(dist_src_exports);
     var REGEX_IS_INSTALLATION_LEGACY = /^v1\./;
     var REGEX_IS_INSTALLATION = /^ghs_/;
     var REGEX_IS_USER_TO_SERVER = /^ghu_/;
@@ -21080,7 +21085,7 @@ var require_dist_node8 = __commonJS({
     var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
     var __getOwnPropNames2 = Object.getOwnPropertyNames;
     var __hasOwnProp2 = Object.prototype.hasOwnProperty;
-    var __export = (target, all) => {
+    var __export2 = (target, all) => {
       for (var name in all)
         __defProp2(target, name, { get: all[name], enumerable: true });
     };
@@ -21092,12 +21097,12 @@ var require_dist_node8 = __commonJS({
       }
       return to;
     };
-    var __toCommonJS = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
+    var __toCommonJS2 = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
     var index_exports = {};
-    __export(index_exports, {
+    __export2(index_exports, {
       Octokit: () => Octokit
     });
-    module2.exports = __toCommonJS(index_exports);
+    module2.exports = __toCommonJS2(index_exports);
     var import_universal_user_agent = require_dist_node();
     var import_before_after_hook = require_before_after_hook();
     var import_request = require_dist_node5();
@@ -21246,7 +21251,7 @@ var require_dist_node9 = __commonJS({
     var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
     var __getOwnPropNames2 = Object.getOwnPropertyNames;
     var __hasOwnProp2 = Object.prototype.hasOwnProperty;
-    var __export = (target, all) => {
+    var __export2 = (target, all) => {
       for (var name in all)
         __defProp2(target, name, { get: all[name], enumerable: true });
     };
@@ -21258,13 +21263,13 @@ var require_dist_node9 = __commonJS({
       }
       return to;
     };
-    var __toCommonJS = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
+    var __toCommonJS2 = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
     var dist_src_exports = {};
-    __export(dist_src_exports, {
+    __export2(dist_src_exports, {
       legacyRestEndpointMethods: () => legacyRestEndpointMethods,
       restEndpointMethods: () => restEndpointMethods
     });
-    module2.exports = __toCommonJS(dist_src_exports);
+    module2.exports = __toCommonJS2(dist_src_exports);
     var VERSION = "10.4.1";
     var Endpoints = {
       actions: {
@@ -23402,7 +23407,7 @@ var require_dist_node10 = __commonJS({
     var __getOwnPropDesc2 = Object.getOwnPropertyDescriptor;
     var __getOwnPropNames2 = Object.getOwnPropertyNames;
     var __hasOwnProp2 = Object.prototype.hasOwnProperty;
-    var __export = (target, all) => {
+    var __export2 = (target, all) => {
       for (var name in all)
         __defProp2(target, name, { get: all[name], enumerable: true });
     };
@@ -23414,15 +23419,15 @@ var require_dist_node10 = __commonJS({
       }
       return to;
     };
-    var __toCommonJS = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
+    var __toCommonJS2 = (mod) => __copyProps2(__defProp2({}, "__esModule", { value: true }), mod);
     var dist_src_exports = {};
-    __export(dist_src_exports, {
+    __export2(dist_src_exports, {
       composePaginateRest: () => composePaginateRest,
       isPaginatingEndpoint: () => isPaginatingEndpoint,
       paginateRest: () => paginateRest,
       paginatingEndpoints: () => paginatingEndpoints
     });
-    module2.exports = __toCommonJS(dist_src_exports);
+    module2.exports = __toCommonJS2(dist_src_exports);
     var VERSION = "9.2.2";
     function normalizePaginatedListResponse(response) {
       if (!response.data) {
@@ -23878,6 +23883,11 @@ var require_github = __commonJS({
 });
 
 // src/main.ts
+var main_exports = {};
+__export(main_exports, {
+  resolveActionDriftEnforcement: () => resolveActionDriftEnforcement
+});
+module.exports = __toCommonJS(main_exports);
 var import_child_process = require("child_process");
 var core = __toESM(require_core());
 var github2 = __toESM(require_github());
@@ -24326,6 +24336,16 @@ var ERROR_CODE_META = {
     userMessage: "This site's saved session has expired. Reconnect it to validate again.",
     shortLabel: "Session expired"
   },
+  CAPABILITY_UNAVAILABLE: {
+    retryable: false,
+    userMessage: "Validating sites that need a saved sign-in isn't available right now. This one's on us \u2014 contact support and we'll get it working.",
+    shortLabel: "Capability unavailable"
+  },
+  PROVIDER_REQUEST_REJECTED: {
+    retryable: false,
+    userMessage: "This validation couldn't be completed. Trying again won't change the result \u2014 contact support if you need it looked at.",
+    shortLabel: "Validation rejected"
+  },
   INVALID_REFERENCE_URL: {
     retryable: false,
     userMessage: "The reference URL is invalid. It must start with https:// and point to a real page.",
@@ -24346,6 +24366,11 @@ var ERROR_CODE_META = {
     userMessage: "Design system unavailable. The selected brand context is not available. Choose another or reconnect it in Settings.",
     shortLabel: "Brand context unavailable"
   },
+  DESIGN_SYSTEM_INCOMPATIBLE: {
+    retryable: false,
+    userMessage: "This design system can't be checked yet. We support Tailwind + shadcn today and are adding more \u2014 reconnect a supported design system, or check back soon.",
+    shortLabel: "Design system not supported yet"
+  },
   FLOW_STEP_FAILED: {
     retryable: false,
     userMessage: "A flow validation step failed. Check that all prototype transitions in the Figma file point to valid frames.",
@@ -24363,8 +24388,12 @@ var SUPABASE_URL = "https://ddufcgkwjcdseggjaiil.supabase.co";
 var SUPABASE_ANON_KEY = "sb_publishable_JCHgvBld-swO93653cDH9A_urU0alOo";
 var DEFAULT_TIMEOUT_MS = 9e4;
 var WARNING_PAYLOAD_BYTES = 2 * 1024 * 1024;
-async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, textMode = "styling-only", authMode = "pipeline-secret") {
-  const body = JSON.stringify({ figmaSpecs, domElements, textMode });
+async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, textMode = "styling-only", authMode = "pipeline-secret", options = {}) {
+  const bodyPayload = { figmaSpecs, domElements, textMode };
+  if (options.figmaUrl) bodyPayload.figmaUrl = options.figmaUrl;
+  if (options.liveUrl) bodyPayload.liveUrl = options.liveUrl;
+  if (options.idempotencyKey) bodyPayload.idempotencyKey = options.idempotencyKey;
+  const body = JSON.stringify(bodyPayload);
   const bodySize = Buffer.byteLength(body);
   if (bodySize > WARNING_PAYLOAD_BYTES) {
     console.log(
@@ -26211,12 +26240,120 @@ async function captureAnnotatedScreenshot(url, diffs, outputPath, viewport = { w
   await browser.close();
 }
 
+// src/result-completeness.ts
+function confirmedViolationCount(c) {
+  if (c.driftCount === null || c.offTokenCount === null) return null;
+  return c.driftCount + c.offTokenCount;
+}
+var NON_GATING_REASONS = ["validation_not_attempted"];
+function gatesCi(c, opts) {
+  const outcome = ciOutcomeFor(c);
+  if (outcome === "pass") return false;
+  if (outcome === "fail_violation") return opts?.failOnDrift === true;
+  if (outcome === "fail_operational") return true;
+  return !c.reasons.every((r) => NON_GATING_REASONS.includes(r));
+}
+function buildCompleteness(input) {
+  const reasons = normalizeReasons(input.reasons ?? []);
+  let state = input.state;
+  const driftCount = countOrNull(input.driftCount);
+  const offTokenCount = countOrNull(input.offTokenCount);
+  const unverifiedCount = countOrNull(input.unverifiedCount);
+  if (state === "complete" && reasons.length > 0) state = "partial";
+  if (state === "complete" && (driftCount === null || offTokenCount === null || unverifiedCount === null)) {
+    state = "unverified";
+    if (!reasons.includes("completeness_metadata_missing")) {
+      reasons.push("completeness_metadata_missing");
+    }
+  }
+  if (state !== "complete" && reasons.length === 0) reasons.push("completeness_metadata_missing");
+  return {
+    state,
+    reasons,
+    verified: state === "complete",
+    driftCount,
+    offTokenCount,
+    unverifiedCount,
+    retryable: input.retryable ?? defaultRetryable(state, reasons)
+  };
+}
+function ciOutcomeFor(c) {
+  if (c.state === "operational_failure") return "fail_operational";
+  if (c.state !== "complete") return "incomplete";
+  const confirmed = confirmedViolationCount(c);
+  if (confirmed === null) return "incomplete";
+  return confirmed > 0 ? "fail_violation" : "pass";
+}
+function summaryHeadline(c) {
+  switch (ciOutcomeFor(c)) {
+    case "pass":
+      return "Verification passed";
+    case "fail_violation":
+      return "Confirmed violations found";
+    case "fail_operational":
+      return "Validation failed to run";
+    case "incomplete":
+      return c.state === "configuration_required" ? "Configuration required" : "Verification incomplete";
+  }
+}
+function formatViolationCounts(c, totalFindings) {
+  const parts = [
+    c.driftCount === null ? "confirmed drift unavailable" : `${c.driftCount} confirmed drift${c.driftCount === 1 ? "" : "s"}`,
+    c.offTokenCount === null ? "off-token count unavailable" : `${c.offTokenCount} off-token violation${c.offTokenCount === 1 ? "" : "s"}`
+  ];
+  const total = countOrNull(totalFindings);
+  const confirmed = confirmedViolationCount(c);
+  if (total === null) {
+    if (totalFindings !== void 0) parts.push("total findings unavailable");
+  } else if (confirmed !== null && total < confirmed) {
+    parts.push("total findings unavailable");
+  } else {
+    parts.push(`${total} total finding${total === 1 ? "" : "s"}`);
+  }
+  return parts.join(" \xB7 ");
+}
+function describeReasons(reasons) {
+  return reasons.map((r) => REASON_TEXT[r]);
+}
+var REASON_TEXT = {
+  css_variable_discovery_partial: "Some stylesheets could not be read, so parts of the page were not inspected.",
+  css_variable_discovery_expected_only: "No token values were resolved from the page \u2014 only the expected token names were known.",
+  declaration_provenance_unverified: "Token values were observed, but the stylesheet that declares them could not be read.",
+  unverified_token_values: "Some token values could not be compared and reached no verdict.",
+  storybook_story_cap: "The Storybook story cap was reached, so some stories were not inspected.",
+  theme_anchor_unresolved: "This team has more than one connected repository and none is designated, so no design system could be selected.",
+  brand_unresolved: "More than one brand exists and none was requested, so no brand could be selected.",
+  design_system_not_configured: "No design system is connected for this repository.",
+  result_read_failed: "The validation result could not be read back.",
+  run_not_finalized: "The validation did not reach a final state.",
+  bypass_scan_incomplete: "The design-system bypass scan did not cover every changed file.",
+  validation_not_attempted: "The validation was not attempted, so nothing was verified.",
+  completeness_metadata_missing: "The result carried no completeness information, so full coverage cannot be assumed.",
+  completeness_metadata_malformed: "The result carried unreadable completeness information."
+};
+function defaultRetryable(state, reasons) {
+  if (state === "configuration_required") return false;
+  if (state === "complete") return false;
+  return reasons.some(
+    (r) => r === "result_read_failed" || r === "run_not_finalized" || r === "css_variable_discovery_partial" || r === "validation_not_attempted"
+  );
+}
+function normalizeReasons(reasons) {
+  return Array.from(new Set(reasons)).sort();
+}
+function countOrNull(v) {
+  if (typeof v !== "number") return null;
+  if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0) return null;
+  return v;
+}
+
 // src/main.ts
 async function run() {
   try {
     const configPath = core.getInput("config-path") || "fidel.config.json";
     const githubToken = core.getInput("github-token");
     const failOnScore = parseIntegerInput(core.getInput("fail-on-score") || "0", "fail-on-score");
+    const failOnDriftInput = core.getInput("fail-on-drift");
     console.log("[fidel-ci] Requesting authentication tokens...");
     const oidcToken = await requestGitHubOidcToken();
     const { figmaAccessToken, supabaseAccessToken } = await requestCiTokens(oidcToken);
@@ -26227,6 +26364,7 @@ async function run() {
       core.notice("No Figma checks configured. Nothing to compare \u2014 this is not a failure.");
       core.setOutput("skipped", "true");
       core.setOutput("skip-reason", "no_figma_checks");
+      emitResultOutputs(notAttemptedCompleteness());
       return;
     }
     const resolvedChecks = config.checks.map((check) => resolveCheck(check, config.defaults, templateVariables));
@@ -26247,6 +26385,7 @@ async function run() {
         core.notice("Skipping: no frontend changes detected in this PR");
         core.setOutput("skipped", "true");
         core.setOutput("skip-reason", "no_frontend_changes");
+        emitResultOutputs(notAttemptedCompleteness());
         void recordSkipTelemetry(supabaseAccessToken, {
           changed_file_count: changedFilesResult.files.length,
           pattern_count: triggerPatterns.length,
@@ -26285,26 +26424,133 @@ async function run() {
         console.error("[fidel-ci] Screenshot capture failed (non-fatal):", err.message);
       }
     }
-    await maybePostPullRequestComment(githubToken, results, screenshotUrl, {
+    const { bypassIncomplete } = await maybePostPullRequestComment(githubToken, results, screenshotUrl, {
       supabaseAccessToken,
       changedFilesResult
     });
-    const failures = [];
-    if (successfulResults.length === 0) {
-      failures.push("No checks completed successfully");
-    }
-    if (failedResults.length > 0) {
-      failures.push(`${failedResults.length} check(s) failed`);
-    }
-    if (failOnScore > 0 && successfulResults.length > 0 && lowestScore < failOnScore) {
-      failures.push(`Design validation score ${lowestScore} is below threshold ${failOnScore}`);
-    }
-    if (failures.length > 0) {
-      core.setFailed(failures.join("; "));
+    const reasons = [];
+    if (bypassIncomplete) reasons.push("bypass_scan_incomplete");
+    const operational = successfulResults.length === 0 || failedResults.length > 0;
+    const completeness = buildCompleteness({
+      state: operational ? "operational_failure" : reasons.length > 0 ? "partial" : "complete",
+      // An operational failure keeps `run_not_finalized` rather than falling
+      // through to the generic "no completeness information" default, which
+      // would describe the wrong problem to the reader.
+      reasons: operational ? ["run_not_finalized"] : reasons,
+      driftCount: totalIssues,
+      // Both explicitly zero, not omitted. The Figma comparison reaches a
+      // verdict on every property it checks and has no design-token concept at
+      // all, so "no unverified findings" and "no off-token findings" are true
+      // statements about this run rather than absent counts — and an omitted
+      // count now (correctly) degrades a `complete` state to unverified.
+      offTokenCount: 0,
+      unverifiedCount: 0,
+      retryable: operational
+    });
+    const enforcement = resolveActionDriftEnforcement({
+      failOnDriftInput,
+      failOnScore,
+      lowestScore,
+      successfulCount: successfulResults.length
+    });
+    const failOnDrift = enforcement.enforced;
+    emitResultOutputs(completeness, failOnDrift);
+    await writeJobSummary(completeness, {
+      checks: results.length,
+      lowestScore,
+      failedCount: failedResults.length,
+      bypassIncompleteReason: bypassIncomplete?.reason,
+      driftEnforced: failOnDrift
+    });
+    if (gatesCi(completeness, { failOnDrift })) {
+      const failures = [];
+      if (successfulResults.length === 0) failures.push("No checks completed successfully");
+      if (failedResults.length > 0) failures.push(`${failedResults.length} check(s) failed`);
+      const confirmed = confirmedViolationCount(completeness);
+      if (failOnDrift && completeness.verified && (confirmed ?? 0) > 0) {
+        failures.push(enforcement.source === "fail-on-score" ? `Design validation score ${lowestScore} is below threshold ${failOnScore}` : formatViolationCounts(completeness, totalIssues));
+      }
+      for (const line of describeReasons(completeness.reasons)) failures.push(line);
+      core.setFailed(`${summaryHeadline(completeness)}: ${failures.join("; ")}`);
+    } else if (ciOutcomeFor(completeness) === "fail_violation") {
+      core.notice(
+        `${summaryHeadline(completeness)}: ${formatViolationCounts(completeness, totalIssues)}. Drift enforcement is disabled, so this run is not blocking. Enable it with \`fail-on-drift: true\`.`
+      );
     }
   } catch (error) {
     console.error("[fidel-ci] Fatal error:", error.message || String(error));
+    const completeness = buildCompleteness({
+      state: "operational_failure",
+      reasons: ["run_not_finalized"],
+      retryable: true
+    });
+    emitResultOutputs(completeness);
     core.setFailed("Fidel validation failed. Check the logs for details.");
+  }
+}
+function emitResultOutputs(c, driftEnforced = false) {
+  core.setOutput("result", ciOutcomeFor(c));
+  core.setOutput("completeness", c.state);
+  core.setOutput("verified", String(c.verified));
+  core.setOutput("drift-count", String(c.driftCount));
+  core.setOutput("off-token-count", String(c.offTokenCount));
+  core.setOutput("confirmed-violation-count", String(confirmedViolationCount(c)));
+  core.setOutput("unverified-count", String(c.unverifiedCount));
+  core.setOutput("partial-reasons", c.reasons.join(","));
+  core.setOutput("retryable", String(c.retryable));
+  core.setOutput("drift-enforcement", String(driftEnforced));
+}
+function resolveActionDriftEnforcement(input) {
+  const raw = (input.failOnDriftInput ?? "").trim().toLowerCase();
+  const explicit = raw === "true" ? true : raw === "false" ? false : void 0;
+  if (explicit !== void 0) {
+    if (input.failOnScore > 0) {
+      (input.warn ?? core.warning)(
+        `Both \`fail-on-drift\` and \`fail-on-score\` are set. \`fail-on-drift: ${explicit}\` wins; \`fail-on-score\` is deprecated and ignored. Remove it.`
+      );
+    }
+    return { enforced: explicit, source: "fail-on-drift" };
+  }
+  if (raw !== "") {
+    (input.warn ?? core.warning)(
+      `\`fail-on-drift\` must be true or false; got "${input.failOnDriftInput}". Treating it as unset.`
+    );
+  }
+  if (input.failOnScore > 0) {
+    (input.warn ?? core.warning)(
+      "`fail-on-score` is deprecated. Use `fail-on-drift: true` to block on confirmed drift."
+    );
+    return {
+      enforced: input.successfulCount > 0 && input.lowestScore < input.failOnScore,
+      source: "fail-on-score"
+    };
+  }
+  return { enforced: false, source: "default" };
+}
+function notAttemptedCompleteness() {
+  return buildCompleteness({
+    state: "unverified",
+    reasons: ["validation_not_attempted"],
+    retryable: false
+  });
+}
+async function writeJobSummary(c, ctx) {
+  try {
+    const lines = [`### Fidel \u2014 ${summaryHeadline(c)}`, ""];
+    lines.push(`- Checks run: ${ctx.checks}`);
+    if (ctx.failedCount > 0) lines.push(`- Checks that failed to run: ${ctx.failedCount}`);
+    const confirmed = confirmedViolationCount(c);
+    if (c.verified && confirmed !== null) {
+      lines.push(`- Findings: ${formatViolationCounts(c)}`);
+    }
+    if (c.verified && confirmed !== null && confirmed > 0 && !ctx.driftEnforced) {
+      lines.push("- Drift enforcement is disabled, so this run is not blocking. Enable it with `fail-on-drift: true`.");
+    }
+    for (const reason of describeReasons(c.reasons)) lines.push(`- ${reason}`);
+    if (ctx.bypassIncompleteReason) lines.push(`- Bypass scan detail: ${ctx.bypassIncompleteReason}`);
+    await core.summary.addRaw(lines.join("\n")).write();
+  } catch (err) {
+    console.log(`[fidel-ci] Could not write job summary (non-fatal): ${err.message}`);
   }
 }
 async function requestGitHubOidcToken() {
@@ -26490,11 +26736,11 @@ async function maybePostPullRequestComment(githubToken, results, screenshotUrl, 
   const pullRequest = github2.context.payload.pull_request;
   if (!pullRequest) {
     console.log("[fidel-ci] No pull request context detected; skipping comment");
-    return;
+    return {};
   }
   if (!githubToken) {
     core.warning("No github-token provided; skipping PR comment");
-    return;
+    return {};
   }
   const repository = getRepository();
   let prior = null;
@@ -26558,6 +26804,7 @@ async function maybePostPullRequestComment(githubToken, results, screenshotUrl, 
   });
   const commentId = await postOrUpdateComment(githubToken, repository, pullRequest.number, commentBody);
   console.log(`[fidel-ci] Updated PR comment ${commentId}`);
+  return { bypassIncomplete };
 }
 function getRepository() {
   const owner = github2.context.repo.owner || process.env.GITHUB_REPOSITORY_OWNER;
@@ -26615,6 +26862,10 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 void run();
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  resolveActionDriftEnforcement
+});
 /*! Bundled license information:
 
 undici/lib/fetch/body.js:
