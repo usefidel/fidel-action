@@ -56,6 +56,6 @@ outputs:
     description: 'true when confirmed drift blocks this run. Never affects whether an incomplete result blocks'
 
 runs:
-  using: 'node20'
+  using: 'node24'
   pre: 'dist/setup.js'
   main: 'dist/index.js'

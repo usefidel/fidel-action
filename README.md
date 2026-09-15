@@ -18,7 +18,7 @@ page, reads your Figma frame, and comments on the pull request with the differen
 colour, spacing, typography, missing elements.
 
 ```yaml
-- uses: usefidel/fidel-action@v1
+- uses: usefidel/fidel-action@v3
 ```
 
 Get started at **[usefidel.com](https://usefidel.com)**.
@@ -171,10 +171,12 @@ empty string, and an empty string reads as "fine".
 
 ## Versioning
 
+> **v2 and earlier stop working on 2026-09-23** when GitHub removes Node 20 from Actions runners. Pin `@v3` before that date.
+
 | Tag | Behaviour |
 |---|---|
-| `@v1` | Tracks the latest `v1.x.x` release. Recommended. |
-| `@v1.0.0` | Pinned and immutable. Never moves. |
+| `@v3` | Tracks the latest `v3.x.x` release. Recommended. |
+| `@v3.0.0` | Pinned and immutable. Never moves. |
 
 ## License
 

@@ -766,9 +766,11 @@ var ERROR_CODE_META = {
   }
 };
 
-// src/pipeline.ts
+// src/api-base.ts
 var SUPABASE_URL = "https://ddufcgkwjcdseggjaiil.supabase.co";
 var SUPABASE_ANON_KEY = "sb_publishable_JCHgvBld-swO93653cDH9A_urU0alOo";
+
+// src/pipeline.ts
 var DEFAULT_TIMEOUT_MS = 9e4;
 var WARNING_PAYLOAD_BYTES = 2 * 1024 * 1024;
 async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, textMode = "styling-only", authMode = "pipeline-secret", options = {}) {
@@ -1821,6 +1823,10 @@ var INCOMPLETE_REASONS = [
   "declaration_provenance_unverified",
   "unverified_token_values",
   "storybook_story_cap",
+  "token_reference_missing",
+  "token_reference_unresolved",
+  "token_syntax_unsupported",
+  "applicability_unconfirmed",
   "theme_anchor_unresolved",
   "brand_unresolved",
   "design_system_not_configured",
@@ -1831,6 +1837,109 @@ var INCOMPLETE_REASONS = [
   "completeness_metadata_missing",
   "completeness_metadata_malformed"
 ];
+function asRecord(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  return v;
+}
+var RESPONSIBILITY_CLASS = {
+  // Fidel's capability limits — the page was fine, our inspection was not.
+  css_variable_discovery_partial: "fidel_capability",
+  css_variable_discovery_expected_only: "fidel_capability",
+  declaration_provenance_unverified: "fidel_capability",
+  unverified_token_values: "fidel_capability",
+  storybook_story_cap: "fidel_capability",
+  bypass_scan_incomplete: "fidel_capability",
+  // S2, the split that matters: `unresolved` is ours, `missing` is theirs. A
+  // pointer is only the customer's problem once every `var(--x)` target of the
+  // declared value is PROVEN absent from a page whose variable capture was
+  // itself complete. Anything short of that proof is `unresolved`.
+  token_reference_unresolved: "fidel_capability",
+  token_syntax_unsupported: "fidel_capability",
+  token_reference_missing: "customer_configuration",
+  // Configuration the customer owns.
+  theme_anchor_unresolved: "customer_configuration",
+  brand_unresolved: "customer_configuration",
+  design_system_not_configured: "customer_configuration",
+  // Fidel's own machinery.
+  result_read_failed: "fidel_system",
+  run_not_finalized: "fidel_system",
+  validation_not_attempted: "fidel_system",
+  completeness_metadata_missing: "fidel_system",
+  completeness_metadata_malformed: "fidel_system",
+  // Nobody's fault: we were never told this design system governs this page.
+  applicability_unconfirmed: "unverified_applicability"
+};
+var FAIL_CLOSED_REASONS = [
+  "completeness_metadata_missing",
+  "completeness_metadata_malformed"
+];
+var NON_GATING_REASONS = INCOMPLETE_REASONS.filter((r) => {
+  const cls = RESPONSIBILITY_CLASS[r];
+  return (cls === "fidel_capability" || cls === "fidel_system" || cls === "unverified_applicability") && !FAIL_CLOSED_REASONS.includes(r);
+});
+var BRIDGE_APPLICABILITIES = [
+  "user-confirmed",
+  "detected",
+  "unknown"
+];
+function isReadinessConsistent(readiness) {
+  return Object.values(readiness.categories).every(
+    (category) => category.ready === categoryReadyFor(category, readiness.applicability)
+  );
+}
+function categoryReadyFor(category, applicability) {
+  return category.total - category.referenceInputs > 0 && category.unresolved === 0 && applicability === "user-confirmed";
+}
+function parseReadiness(raw) {
+  const rec = asRecord(raw);
+  if (rec === null) return void 0;
+  if (rec.bridge !== "legacy-v1") return void 0;
+  const rawCategories = asRecord(rec.categories);
+  if (rawCategories === null) return void 0;
+  const color = parseReadinessCategory(rawCategories.color);
+  const typography = parseReadinessCategory(rawCategories.typography);
+  const size = parseReadinessCategory(rawCategories.size);
+  if (color === void 0 || typography === void 0 || size === void 0) return void 0;
+  if (rec.tuple !== void 0 && asRecord(rec.tuple)?.theme !== "light") return void 0;
+  const applicability = BRIDGE_APPLICABILITIES.includes(rec.applicability) ? rec.applicability : "unknown";
+  const snapshot = {
+    bridge: "legacy-v1",
+    tuple: { theme: "light" },
+    applicability,
+    categories: { color, typography, size }
+  };
+  if (typeof rec.applicabilityOrigin === "string") {
+    snapshot.applicabilityOrigin = rec.applicabilityOrigin;
+  }
+  if (!isReadinessConsistent(snapshot)) return void 0;
+  return snapshot;
+}
+function parseReadinessCategory(raw) {
+  const rec = asRecord(raw);
+  if (rec === null) return void 0;
+  const total = countOrNull(rec.total);
+  const resolved = countOrNull(rec.resolved);
+  const unresolved = countOrNull(rec.unresolved);
+  const suppressedNegatives = countOrNull(rec.suppressedNegatives);
+  if (total === null || resolved === null || unresolved === null || suppressedNegatives === null) {
+    return void 0;
+  }
+  const referenceInputs = rec.referenceInputs === void 0 ? 0 : countOrNull(rec.referenceInputs);
+  if (referenceInputs === null) return void 0;
+  if (total !== resolved + unresolved + referenceInputs) return void 0;
+  if (typeof rec.ready !== "boolean") return void 0;
+  const reasons = {};
+  const rawReasons = asRecord(rec.reasons);
+  if (rawReasons !== null) {
+    for (const [key, value] of Object.entries(rawReasons)) {
+      if (!isIncompleteReason(key)) continue;
+      const count = countOrNull(value);
+      if (count === null) continue;
+      reasons[key] = count;
+    }
+  }
+  return { total, resolved, referenceInputs, unresolved, ready: rec.ready, reasons, suppressedNegatives };
+}
 var STATE_RANK = {
   complete: 0,
   partial: 1,
@@ -1861,7 +1970,7 @@ function buildCompleteness(input) {
     }
   }
   if (state !== "complete" && reasons.length === 0) reasons.push("completeness_metadata_missing");
-  return {
+  const out = {
     state,
     reasons,
     verified: state === "complete",
@@ -1870,6 +1979,10 @@ function buildCompleteness(input) {
     unverifiedCount,
     retryable: input.retryable ?? defaultRetryable(state, reasons)
   };
+  if (input.readiness !== void 0 && isReadinessConsistent(input.readiness)) {
+    out.readiness = input.readiness;
+  }
+  return out;
 }
 function ciOutcomeFor(c) {
   if (c.state === "operational_failure") return "fail_operational";
@@ -1924,7 +2037,10 @@ function completenessFromAdvisories(advisories) {
     driftCount: countOrNull(first.driftCount),
     offTokenCount: countOrNull(first.offTokenCount),
     unverifiedCount: countOrNull(first.unverifiedCount),
-    retryable: typeof first.retryable === "boolean" ? first.retryable : void 0
+    retryable: typeof first.retryable === "boolean" ? first.retryable : void 0,
+    // Same projection applies: an anonymous viewer gets {code, reason} only, so
+    // this resolves to undefined and the reader must render "not stated".
+    readiness: parseReadiness(first.readiness)
   });
 }
 function describeReasons(reasons) {
@@ -1936,6 +2052,10 @@ var REASON_TEXT = {
   declaration_provenance_unverified: "Token values were observed, but the stylesheet that declares them could not be read.",
   unverified_token_values: "Some token values could not be compared and reached no verdict.",
   storybook_story_cap: "The Storybook story cap was reached, so some stories were not inspected.",
+  token_reference_missing: "A declared token references a variable the page does not define.",
+  token_reference_unresolved: "A declared token references another variable, and Fidel cannot resolve that reference yet.",
+  token_syntax_unsupported: "A declared token uses a value syntax Fidel cannot compare yet.",
+  applicability_unconfirmed: "The design system was matched to this page automatically, so nothing was confirmed as a violation.",
   theme_anchor_unresolved: "This team has more than one connected repository and none is designated, so no design system could be selected.",
   brand_unresolved: "More than one brand exists and none was requested, so no brand could be selected.",
   design_system_not_configured: "No design system is connected for this repository.",
@@ -2028,7 +2148,13 @@ async function runOneDesignSystemCheck(check, opts) {
     if (postResp.status === 422) {
       const errorCode = typeof postJson?.errorCode === "string" ? postJson.errorCode : void 0;
       if (errorCode === "SESSION_EXPIRED") {
-        return notAttempted(check, url, startedAt, "Connected environment session expired \u2014 reconnect in Fidel settings.");
+        const reconnectUrl = typeof postJson?.reconnectUrl === "string" && postJson.reconnectUrl.startsWith("https://") ? postJson.reconnectUrl : void 0;
+        return notAttempted(
+          check,
+          url,
+          startedAt,
+          reconnectUrl ? `Connected environment session expired \u2014 reconnect it here: ${reconnectUrl}` : "Connected environment session expired \u2014 reconnect in Fidel settings."
+        );
       }
       if (errorCode === "DESIGN_SYSTEM_BRAND_NOT_RESOLVED") {
         const count = typeof postJson?.candidateCount === "number" ? postJson.candidateCount : void 0;

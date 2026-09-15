@@ -24269,6 +24269,277 @@ function escCode(value) {
   return value.replace(/`/g, "'");
 }
 
+// src/result-completeness.ts
+function confirmedViolationCount(c) {
+  if (c.driftCount === null || c.offTokenCount === null) return null;
+  return c.driftCount + c.offTokenCount;
+}
+var INCOMPLETE_REASONS = [
+  "css_variable_discovery_partial",
+  "css_variable_discovery_expected_only",
+  "declaration_provenance_unverified",
+  "unverified_token_values",
+  "storybook_story_cap",
+  "token_reference_missing",
+  "token_reference_unresolved",
+  "token_syntax_unsupported",
+  "applicability_unconfirmed",
+  "theme_anchor_unresolved",
+  "brand_unresolved",
+  "design_system_not_configured",
+  "result_read_failed",
+  "run_not_finalized",
+  "bypass_scan_incomplete",
+  "validation_not_attempted",
+  "completeness_metadata_missing",
+  "completeness_metadata_malformed"
+];
+var RESPONSIBILITY_CLASS = {
+  // Fidel's capability limits — the page was fine, our inspection was not.
+  css_variable_discovery_partial: "fidel_capability",
+  css_variable_discovery_expected_only: "fidel_capability",
+  declaration_provenance_unverified: "fidel_capability",
+  unverified_token_values: "fidel_capability",
+  storybook_story_cap: "fidel_capability",
+  bypass_scan_incomplete: "fidel_capability",
+  // S2, the split that matters: `unresolved` is ours, `missing` is theirs. A
+  // pointer is only the customer's problem once every `var(--x)` target of the
+  // declared value is PROVEN absent from a page whose variable capture was
+  // itself complete. Anything short of that proof is `unresolved`.
+  token_reference_unresolved: "fidel_capability",
+  token_syntax_unsupported: "fidel_capability",
+  token_reference_missing: "customer_configuration",
+  // Configuration the customer owns.
+  theme_anchor_unresolved: "customer_configuration",
+  brand_unresolved: "customer_configuration",
+  design_system_not_configured: "customer_configuration",
+  // Fidel's own machinery.
+  result_read_failed: "fidel_system",
+  run_not_finalized: "fidel_system",
+  validation_not_attempted: "fidel_system",
+  completeness_metadata_missing: "fidel_system",
+  completeness_metadata_malformed: "fidel_system",
+  // Nobody's fault: we were never told this design system governs this page.
+  applicability_unconfirmed: "unverified_applicability"
+};
+function responsibilityClassFor(reason) {
+  return RESPONSIBILITY_CLASS[reason];
+}
+var APPLICABILITY_DEPENDENT = {
+  token_reference_missing: true,
+  theme_anchor_unresolved: false,
+  brand_unresolved: false,
+  design_system_not_configured: false
+};
+function isApplicabilityDependent(reason) {
+  return APPLICABILITY_DEPENDENT[reason] === true;
+}
+var FAIL_CLOSED_REASONS = [
+  "completeness_metadata_missing",
+  "completeness_metadata_malformed"
+];
+var NON_GATING_REASONS = INCOMPLETE_REASONS.filter((r) => {
+  const cls = RESPONSIBILITY_CLASS[r];
+  return (cls === "fidel_capability" || cls === "fidel_system" || cls === "unverified_applicability") && !FAIL_CLOSED_REASONS.includes(r);
+});
+function isReadinessConsistent(readiness) {
+  return Object.values(readiness.categories).every(
+    (category) => category.ready === categoryReadyFor(category, readiness.applicability)
+  );
+}
+function categoryReadyFor(category, applicability) {
+  return category.total - category.referenceInputs > 0 && category.unresolved === 0 && applicability === "user-confirmed";
+}
+var NEUTRAL_COPY = {
+  violations_enforcement_off: "Violations found. Enforcement is off. Merge allowed.",
+  not_verified: "Not verified. Merge allowed.",
+  system_failure: "Fidel could not complete verification. Merge allowed."
+};
+function conclusionFor(c, enforcement) {
+  const confirmed = confirmedViolationCount(c);
+  const designSystem = enforcement.claimScope === "design_system";
+  const readiness = designSystem ? c.readiness : void 0;
+  const colorReady = readiness?.categories.color.ready === true;
+  const offTokenContradiction = readiness !== void 0 && !colorReady && (c.offTokenCount ?? 0) > 0;
+  const claimScoped = designSystem ? c.readiness !== void 0 && c.readiness.applicability === "user-confirmed" && !offTokenContradiction : c.state === "complete";
+  const eligible = confirmed === null ? null : designSystem && !colorReady ? confirmed - (c.offTokenCount ?? 0) : confirmed;
+  const violation = claimScoped && eligible !== null && eligible > 0;
+  const anyCategoryReady = readiness !== void 0 && Object.values(readiness.categories).some((category) => category.ready);
+  const pairingUnconfirmed = designSystem && (c.reasons.includes("applicability_unconfirmed") || c.readiness !== void 0 && c.readiness.applicability !== "user-confirmed");
+  const gatingReasonsFor = (reasons) => reasons.filter((r) => {
+    if (FAIL_CLOSED_REASONS.includes(r)) return true;
+    if (responsibilityClassFor(r) !== "customer_configuration") return false;
+    return !(pairingUnconfirmed && isApplicabilityDependent(r));
+  });
+  const failClosed = c.reasons.filter((r) => FAIL_CLOSED_REASONS.includes(r));
+  if (failClosed.length > 0) {
+    const classes2 = sortedUnique([
+      ...c.reasons.map(responsibilityClassFor),
+      ...violation ? ["verified_violation"] : []
+    ]);
+    return { conclusion: "action_required", register: null, classes: classes2, gatingReasons: failClosed };
+  }
+  if (c.state === "operational_failure") {
+    return {
+      conclusion: "neutral",
+      register: "system_failure",
+      classes: ["fidel_system"],
+      gatingReasons: []
+    };
+  }
+  const classes = sortedUnique([
+    ...c.reasons.map(responsibilityClassFor),
+    ...violation ? ["verified_violation"] : []
+  ]);
+  const gatingReasons = gatingReasonsFor(c.reasons);
+  if (c.state === "configuration_required" && gatingReasons.length > 0) {
+    return { conclusion: "action_required", register: null, classes, gatingReasons };
+  }
+  if (violation && enforcement.enforced) {
+    return { conclusion: "failure", register: null, classes, gatingReasons };
+  }
+  if (gatingReasons.length > 0) {
+    return { conclusion: "action_required", register: null, classes, gatingReasons };
+  }
+  if (violation) {
+    return {
+      conclusion: "neutral",
+      register: "violations_enforcement_off",
+      classes,
+      gatingReasons
+    };
+  }
+  if (c.reasons.length > 0) {
+    const allSystem = c.reasons.every((r) => responsibilityClassFor(r) === "fidel_system");
+    return {
+      conclusion: "neutral",
+      register: allSystem ? "system_failure" : "not_verified",
+      classes,
+      gatingReasons
+    };
+  }
+  if (!claimScoped || designSystem && !anyCategoryReady) {
+    return { conclusion: "neutral", register: "not_verified", classes, gatingReasons };
+  }
+  return { conclusion: "success", register: null, classes, gatingReasons };
+}
+function sortedUnique(classes) {
+  return Array.from(new Set(classes)).sort();
+}
+function gatesCi(c, opts) {
+  const d = conclusionFor(c, {
+    enforced: opts.failOnDrift === true,
+    claimScope: opts.claimScope
+  });
+  return d.conclusion === "failure" || d.conclusion === "action_required";
+}
+function buildCompleteness(input) {
+  const reasons = normalizeReasons(input.reasons ?? []);
+  let state = input.state;
+  const driftCount = countOrNull(input.driftCount);
+  const offTokenCount = countOrNull(input.offTokenCount);
+  const unverifiedCount = countOrNull(input.unverifiedCount);
+  if (state === "complete" && reasons.length > 0) state = "partial";
+  if (state === "complete" && (driftCount === null || offTokenCount === null || unverifiedCount === null)) {
+    state = "unverified";
+    if (!reasons.includes("completeness_metadata_missing")) {
+      reasons.push("completeness_metadata_missing");
+    }
+  }
+  if (state !== "complete" && reasons.length === 0) reasons.push("completeness_metadata_missing");
+  const out = {
+    state,
+    reasons,
+    verified: state === "complete",
+    driftCount,
+    offTokenCount,
+    unverifiedCount,
+    retryable: input.retryable ?? defaultRetryable(state, reasons)
+  };
+  if (input.readiness !== void 0 && isReadinessConsistent(input.readiness)) {
+    out.readiness = input.readiness;
+  }
+  return out;
+}
+function ciOutcomeFor(c) {
+  if (c.state === "operational_failure") return "fail_operational";
+  if (c.state !== "complete") return "incomplete";
+  const confirmed = confirmedViolationCount(c);
+  if (confirmed === null) return "incomplete";
+  return confirmed > 0 ? "fail_violation" : "pass";
+}
+function summaryHeadline(c) {
+  switch (ciOutcomeFor(c)) {
+    case "pass":
+      return "Verification passed";
+    case "fail_violation":
+      return "Confirmed violations found";
+    case "fail_operational":
+      return "Validation failed to run";
+    case "incomplete":
+      return c.state === "configuration_required" ? "Configuration required" : "Verification incomplete";
+  }
+}
+function formatViolationCounts(c, totalFindings) {
+  const parts = [
+    c.driftCount === null ? "confirmed drift unavailable" : `${c.driftCount} confirmed drift${c.driftCount === 1 ? "" : "s"}`,
+    c.offTokenCount === null ? "off-token count unavailable" : `${c.offTokenCount} off-token violation${c.offTokenCount === 1 ? "" : "s"}`
+  ];
+  const total = countOrNull(totalFindings);
+  const confirmed = confirmedViolationCount(c);
+  if (total === null) {
+    if (totalFindings !== void 0) parts.push("total findings unavailable");
+  } else if (confirmed !== null && total < confirmed) {
+    parts.push("total findings unavailable");
+  } else {
+    parts.push(`${total} total finding${total === 1 ? "" : "s"}`);
+  }
+  return parts.join(" \xB7 ");
+}
+function describeReasons(reasons) {
+  return reasons.map((r) => REASON_TEXT[r]);
+}
+var REASON_TEXT = {
+  css_variable_discovery_partial: "Some stylesheets could not be read, so parts of the page were not inspected.",
+  css_variable_discovery_expected_only: "No token values were resolved from the page \u2014 only the expected token names were known.",
+  declaration_provenance_unverified: "Token values were observed, but the stylesheet that declares them could not be read.",
+  unverified_token_values: "Some token values could not be compared and reached no verdict.",
+  storybook_story_cap: "The Storybook story cap was reached, so some stories were not inspected.",
+  token_reference_missing: "A declared token references a variable the page does not define.",
+  token_reference_unresolved: "A declared token references another variable, and Fidel cannot resolve that reference yet.",
+  token_syntax_unsupported: "A declared token uses a value syntax Fidel cannot compare yet.",
+  applicability_unconfirmed: "The design system was matched to this page automatically, so nothing was confirmed as a violation.",
+  theme_anchor_unresolved: "This team has more than one connected repository and none is designated, so no design system could be selected.",
+  brand_unresolved: "More than one brand exists and none was requested, so no brand could be selected.",
+  design_system_not_configured: "No design system is connected for this repository.",
+  result_read_failed: "The validation result could not be read back.",
+  run_not_finalized: "The validation did not reach a final state.",
+  bypass_scan_incomplete: "The design-system bypass scan did not cover every changed file.",
+  validation_not_attempted: "The validation was not attempted, so nothing was verified.",
+  completeness_metadata_missing: "The result carried no completeness information, so full coverage cannot be assumed.",
+  completeness_metadata_malformed: "The result carried unreadable completeness information."
+};
+function defaultRetryable(state, reasons) {
+  if (state === "configuration_required") return false;
+  if (state === "complete") return false;
+  return reasons.some(
+    (r) => r === "result_read_failed" || r === "run_not_finalized" || r === "css_variable_discovery_partial" || r === "validation_not_attempted"
+  );
+}
+function normalizeReasons(reasons) {
+  return Array.from(new Set(reasons)).sort();
+}
+function countOrNull(v) {
+  if (typeof v !== "number") return null;
+  if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0) return null;
+  return v;
+}
+
+// src/action-gate.ts
+function actionGates(c, failOnDrift) {
+  return gatesCi(c, { failOnDrift, claimScope: "no_token_claims" }) || c.state === "operational_failure";
+}
+
 // src/run-errors.ts
 var ERROR_CODE_META = {
   TARGET_AUTH_WALL: {
@@ -24383,9 +24654,11 @@ var ERROR_CODE_META = {
   }
 };
 
-// src/pipeline.ts
+// src/api-base.ts
 var SUPABASE_URL = "https://ddufcgkwjcdseggjaiil.supabase.co";
 var SUPABASE_ANON_KEY = "sb_publishable_JCHgvBld-swO93653cDH9A_urU0alOo";
+
+// src/pipeline.ts
 var DEFAULT_TIMEOUT_MS = 9e4;
 var WARNING_PAYLOAD_BYTES = 2 * 1024 * 1024;
 async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, textMode = "styling-only", authMode = "pipeline-secret", options = {}) {
@@ -25399,10 +25672,9 @@ var CREDENTIALS_DIR = import_path3.default.join(
 var CREDENTIALS_FILE = import_path3.default.join(CREDENTIALS_DIR, "credentials.json");
 var OAUTH_PORT = 19283;
 var OAUTH_REDIRECT_URI = `http://localhost:${OAUTH_PORT}/callback`;
-var SUPABASE_URL2 = "https://ddufcgkwjcdseggjaiil.supabase.co";
-var FIGMA_AUTH_EDGE_FN = `${SUPABASE_URL2}/functions/v1/figma-auth`;
-var KENSA_PIPELINE_URL = `${SUPABASE_URL2}/functions/v1/kensa-pipeline`;
-var FIDEL_CI_AUTH_EDGE_FN = `${SUPABASE_URL2}/functions/v1/fidel-ci-auth`;
+var FIGMA_AUTH_EDGE_FN = `${SUPABASE_URL}/functions/v1/figma-auth`;
+var KENSA_PIPELINE_URL = `${SUPABASE_URL}/functions/v1/kensa-pipeline`;
+var FIDEL_CI_AUTH_EDGE_FN = `${SUPABASE_URL}/functions/v1/fidel-ci-auth`;
 function getPipelineUrl() {
   return KENSA_PIPELINE_URL;
 }
@@ -25474,15 +25746,14 @@ function globToRegex(pattern) {
 }
 
 // src/link.ts
-var SUPABASE_URL3 = "https://ddufcgkwjcdseggjaiil.supabase.co";
-var SUPABASE_ANON_KEY2 = "sb_publishable_JCHgvBld-swO93653cDH9A_urU0alOo";
-var CI_AUTH_FN = `${SUPABASE_URL3}/functions/v1/fidel-ci-auth`;
+var ciAuthFn = () => `${SUPABASE_URL}/functions/v1/fidel-ci-auth`;
+var anonKey = () => SUPABASE_ANON_KEY;
 async function requestCiTokens(githubOidcToken) {
-  const resp = await fetch(CI_AUTH_FN, {
+  const resp = await fetch(ciAuthFn(), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "apikey": SUPABASE_ANON_KEY2
+      "apikey": anonKey()
     },
     body: JSON.stringify({ action: "auth", githubOidcToken })
   });
@@ -26240,113 +26511,6 @@ async function captureAnnotatedScreenshot(url, diffs, outputPath, viewport = { w
   await browser.close();
 }
 
-// src/result-completeness.ts
-function confirmedViolationCount(c) {
-  if (c.driftCount === null || c.offTokenCount === null) return null;
-  return c.driftCount + c.offTokenCount;
-}
-var NON_GATING_REASONS = ["validation_not_attempted"];
-function gatesCi(c, opts) {
-  const outcome = ciOutcomeFor(c);
-  if (outcome === "pass") return false;
-  if (outcome === "fail_violation") return opts?.failOnDrift === true;
-  if (outcome === "fail_operational") return true;
-  return !c.reasons.every((r) => NON_GATING_REASONS.includes(r));
-}
-function buildCompleteness(input) {
-  const reasons = normalizeReasons(input.reasons ?? []);
-  let state = input.state;
-  const driftCount = countOrNull(input.driftCount);
-  const offTokenCount = countOrNull(input.offTokenCount);
-  const unverifiedCount = countOrNull(input.unverifiedCount);
-  if (state === "complete" && reasons.length > 0) state = "partial";
-  if (state === "complete" && (driftCount === null || offTokenCount === null || unverifiedCount === null)) {
-    state = "unverified";
-    if (!reasons.includes("completeness_metadata_missing")) {
-      reasons.push("completeness_metadata_missing");
-    }
-  }
-  if (state !== "complete" && reasons.length === 0) reasons.push("completeness_metadata_missing");
-  return {
-    state,
-    reasons,
-    verified: state === "complete",
-    driftCount,
-    offTokenCount,
-    unverifiedCount,
-    retryable: input.retryable ?? defaultRetryable(state, reasons)
-  };
-}
-function ciOutcomeFor(c) {
-  if (c.state === "operational_failure") return "fail_operational";
-  if (c.state !== "complete") return "incomplete";
-  const confirmed = confirmedViolationCount(c);
-  if (confirmed === null) return "incomplete";
-  return confirmed > 0 ? "fail_violation" : "pass";
-}
-function summaryHeadline(c) {
-  switch (ciOutcomeFor(c)) {
-    case "pass":
-      return "Verification passed";
-    case "fail_violation":
-      return "Confirmed violations found";
-    case "fail_operational":
-      return "Validation failed to run";
-    case "incomplete":
-      return c.state === "configuration_required" ? "Configuration required" : "Verification incomplete";
-  }
-}
-function formatViolationCounts(c, totalFindings) {
-  const parts = [
-    c.driftCount === null ? "confirmed drift unavailable" : `${c.driftCount} confirmed drift${c.driftCount === 1 ? "" : "s"}`,
-    c.offTokenCount === null ? "off-token count unavailable" : `${c.offTokenCount} off-token violation${c.offTokenCount === 1 ? "" : "s"}`
-  ];
-  const total = countOrNull(totalFindings);
-  const confirmed = confirmedViolationCount(c);
-  if (total === null) {
-    if (totalFindings !== void 0) parts.push("total findings unavailable");
-  } else if (confirmed !== null && total < confirmed) {
-    parts.push("total findings unavailable");
-  } else {
-    parts.push(`${total} total finding${total === 1 ? "" : "s"}`);
-  }
-  return parts.join(" \xB7 ");
-}
-function describeReasons(reasons) {
-  return reasons.map((r) => REASON_TEXT[r]);
-}
-var REASON_TEXT = {
-  css_variable_discovery_partial: "Some stylesheets could not be read, so parts of the page were not inspected.",
-  css_variable_discovery_expected_only: "No token values were resolved from the page \u2014 only the expected token names were known.",
-  declaration_provenance_unverified: "Token values were observed, but the stylesheet that declares them could not be read.",
-  unverified_token_values: "Some token values could not be compared and reached no verdict.",
-  storybook_story_cap: "The Storybook story cap was reached, so some stories were not inspected.",
-  theme_anchor_unresolved: "This team has more than one connected repository and none is designated, so no design system could be selected.",
-  brand_unresolved: "More than one brand exists and none was requested, so no brand could be selected.",
-  design_system_not_configured: "No design system is connected for this repository.",
-  result_read_failed: "The validation result could not be read back.",
-  run_not_finalized: "The validation did not reach a final state.",
-  bypass_scan_incomplete: "The design-system bypass scan did not cover every changed file.",
-  validation_not_attempted: "The validation was not attempted, so nothing was verified.",
-  completeness_metadata_missing: "The result carried no completeness information, so full coverage cannot be assumed.",
-  completeness_metadata_malformed: "The result carried unreadable completeness information."
-};
-function defaultRetryable(state, reasons) {
-  if (state === "configuration_required") return false;
-  if (state === "complete") return false;
-  return reasons.some(
-    (r) => r === "result_read_failed" || r === "run_not_finalized" || r === "css_variable_discovery_partial" || r === "validation_not_attempted"
-  );
-}
-function normalizeReasons(reasons) {
-  return Array.from(new Set(reasons)).sort();
-}
-function countOrNull(v) {
-  if (typeof v !== "number") return null;
-  if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0) return null;
-  return v;
-}
-
 // src/main.ts
 async function run() {
   try {
@@ -26462,7 +26626,7 @@ async function run() {
       bypassIncompleteReason: bypassIncomplete?.reason,
       driftEnforced: failOnDrift
     });
-    if (gatesCi(completeness, { failOnDrift })) {
+    if (actionGates(completeness, failOnDrift)) {
       const failures = [];
       if (successfulResults.length === 0) failures.push("No checks completed successfully");
       if (failedResults.length > 0) failures.push(`${failedResults.length} check(s) failed`);
@@ -26472,10 +26636,21 @@ async function run() {
       }
       for (const line of describeReasons(completeness.reasons)) failures.push(line);
       core.setFailed(`${summaryHeadline(completeness)}: ${failures.join("; ")}`);
-    } else if (ciOutcomeFor(completeness) === "fail_violation") {
-      core.notice(
-        `${summaryHeadline(completeness)}: ${formatViolationCounts(completeness, totalIssues)}. Drift enforcement is disabled, so this run is not blocking. Enable it with \`fail-on-drift: true\`.`
-      );
+    } else {
+      const decision = conclusionFor(completeness, {
+        enforced: failOnDrift,
+        claimScope: "no_token_claims"
+      });
+      if (decision.conclusion === "neutral" && decision.register) {
+        const lead = NEUTRAL_COPY[decision.register];
+        if (decision.register === "violations_enforcement_off") {
+          core.notice(
+            `${lead} ${formatViolationCounts(completeness, totalIssues)}. Enable it with \`fail-on-drift: true\`.`
+          );
+        } else {
+          core.notice([lead, ...describeReasons(completeness.reasons)].join(" "));
+        }
+      }
     }
   } catch (error) {
     console.error("[fidel-ci] Fatal error:", error.message || String(error));
