@@ -778,6 +778,7 @@ async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, text
   if (options.figmaUrl) bodyPayload.figmaUrl = options.figmaUrl;
   if (options.liveUrl) bodyPayload.liveUrl = options.liveUrl;
   if (options.idempotencyKey) bodyPayload.idempotencyKey = options.idempotencyKey;
+  if (options.viewport) bodyPayload.viewport = options.viewport;
   const body = JSON.stringify(bodyPayload);
   const bodySize = Buffer.byteLength(body);
   if (bodySize > WARNING_PAYLOAD_BYTES) {
@@ -1586,6 +1587,18 @@ var DEFAULT_WAIT_AFTER_LOAD_MS = 500;
 var DEFAULT_WAIT_FOR_LOAD_STATE = "networkidle";
 var DEFAULT_TEXT_MODE = "styling-only";
 var VALID_WAIT_STATES = /* @__PURE__ */ new Set(["load", "domcontentloaded", "networkidle"]);
+var FRAME_VIEWPORT_MISMATCH_RATIO = 0.02;
+function isFrameViewportMismatch(frameWidth, viewportWidth) {
+  if (!(viewportWidth > 0) || !Number.isFinite(frameWidth) || !Number.isFinite(viewportWidth)) {
+    return false;
+  }
+  return Math.abs(frameWidth - viewportWidth) / viewportWidth > FRAME_VIEWPORT_MISMATCH_RATIO;
+}
+function warnFrameViewportMismatch(frameWidth, viewportWidth) {
+  if (!isFrameViewportMismatch(frameWidth, viewportWidth)) return false;
+  console.log(`[fidel-ci] frame_viewport_mismatch frame=${frameWidth} viewport=${viewportWidth}`);
+  return true;
+}
 function loadConfig(configPath) {
   const resolvedPath = import_path2.default.resolve(configPath);
   if (!import_fs2.default.existsSync(resolvedPath)) {
@@ -2772,6 +2785,10 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey, 
     if (figmaSpecs.length === 0) {
       throw new Error(`No Figma specs returned for node ${parsedFigmaUrl.nodeId}`);
     }
+    const frameWidth = figmaSpecs[0]?.boundingBox?.width;
+    if (typeof frameWidth === "number") {
+      warnFrameViewportMismatch(frameWidth, check.viewport.width);
+    }
     await waitForUrl(check.url);
     const snapshotLambdaUrl = process.env.SNAPSHOT_LAMBDA_URL;
     const snapshotLambdaSecret = process.env.SNAPSHOT_LAMBDA_SECRET || "";
@@ -2813,7 +2830,7 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey, 
       supabaseToken,
       check.textMode,
       "supabase-jwt",
-      { figmaUrl: check.figma, liveUrl: check.url, idempotencyKey }
+      { figmaUrl: check.figma, liveUrl: check.url, idempotencyKey, viewport: check.viewport }
     );
     const elapsedMs = Date.now() - startedAt;
     console.log(

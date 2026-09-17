@@ -176,6 +176,7 @@ empty string, and an empty string reads as "fine".
 | Tag | Behaviour |
 |---|---|
 | `@v3` | Tracks the latest `v3.x.x` release. Recommended. |
+| `@v3.0.1` | Pinned and immutable. Never moves. |
 | `@v3.0.0` | Pinned and immutable. Never moves. |
 
 ## License
