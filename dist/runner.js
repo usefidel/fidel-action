@@ -652,6 +652,9 @@ async function getFigmaSpecs(fileKey, nodeId, figmaToken) {
   return result.specs;
 }
 
+// node_modules/@usefidel/contracts/dist/pipeline-wire-version.js
+var PIPELINE_WIRE_VERSION = "fidel.pipeline-wire/1";
+
 // src/run-errors.ts
 var ERROR_CODE_META = {
   TARGET_AUTH_WALL: {
@@ -759,6 +762,11 @@ var ERROR_CODE_META = {
     userMessage: "A flow validation step failed. Check that all prototype transitions in the Figma file point to valid frames.",
     shortLabel: "Flow step failed"
   },
+  WIRE_SCHEMA_MISMATCH: {
+    retryable: false,
+    userMessage: "The Fidel Action and the Fidel service disagree on the request format. Update the Action.",
+    shortLabel: "Update the Action"
+  },
   UNKNOWN_ERROR: {
     retryable: true,
     userMessage: "Something went wrong during validation. Try again \u2014 if it keeps failing, contact support.",
@@ -766,20 +774,82 @@ var ERROR_CODE_META = {
   }
 };
 
-// src/api-base.ts
-var SUPABASE_URL = "https://ddufcgkwjcdseggjaiil.supabase.co";
-var SUPABASE_ANON_KEY = "sb_publishable_JCHgvBld-swO93653cDH9A_urU0alOo";
-
 // src/pipeline.ts
 var DEFAULT_TIMEOUT_MS = 9e4;
 var WARNING_PAYLOAD_BYTES = 2 * 1024 * 1024;
-async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, textMode = "styling-only", authMode = "pipeline-secret", options = {}) {
-  const bodyPayload = { figmaSpecs, domElements, textMode };
+var LAMBDA_MAX_BODY_BYTES = 6 * 1024 * 1024;
+function toAxTreePayload(axTree) {
+  const stripChildren = (n) => ({ ...n, children: [] });
+  return {
+    semanticNodes: axTree.semanticNodes.map(stripChildren),
+    landmarks: axTree.landmarks.map(stripChildren),
+    pageWidth: axTree.pageWidth,
+    pageHeight: axTree.pageHeight,
+    domNodeCount: axTree.domNodeCount,
+    extractionTimeMs: axTree.extractionTimeMs
+  };
+}
+function assertUsableBackend(backend, context) {
+  const fail = (why) => {
+    throw new Error(`[fidel-runner] refusing to run: ${context} backend ${why}`);
+  };
+  if (!backend.url) fail("URL is empty");
+  if (!backend.anonKey) fail("key is empty");
+  let parsed;
+  try {
+    parsed = new URL(backend.url);
+  } catch {
+    return fail(`URL is not a URL: ${JSON.stringify(backend.url.slice(0, 60))}`);
+  }
+  if (parsed.protocol !== "https:") fail(`URL is not https (${parsed.protocol})`);
+  if (!parsed.hostname.endsWith(".supabase.co")) {
+    fail(`URL host ${parsed.hostname} is not a .supabase.co host`);
+  }
+}
+async function runPipelineWithBackend(figmaSpecs, domElements, pipelineUrl, authToken, textMode, authMode, options, backend) {
+  assertUsableBackend(backend, "pipeline");
+  return runPipelineInternal(
+    figmaSpecs,
+    domElements,
+    pipelineUrl,
+    authToken,
+    textMode,
+    authMode,
+    options,
+    backend.anonKey
+  );
+}
+async function runPipelineInternal(figmaSpecs, domElements, pipelineUrl, authToken, textMode, authMode, options, apikey) {
+  const bodyPayload = {
+    // Brief 2.1. Declares which request contract this build speaks. Its
+    // ABSENCE means fidel.pipeline-wire/0 — a pre-2.1 Action — which the
+    // Lambda accepts or rejects per FIDEL_WIRE_STRICT.
+    wire: PIPELINE_WIRE_VERSION,
+    validationMode: "figma_vs_live",
+    figmaSpecs,
+    domElements,
+    textMode
+  };
   if (options.figmaUrl) bodyPayload.figmaUrl = options.figmaUrl;
   if (options.liveUrl) bodyPayload.liveUrl = options.liveUrl;
   if (options.idempotencyKey) bodyPayload.idempotencyKey = options.idempotencyKey;
   if (options.viewport) bodyPayload.viewport = options.viewport;
-  const body = JSON.stringify(bodyPayload);
+  let body;
+  if (options.axTree) {
+    bodyPayload.axTree = toAxTreePayload(
+      options.axTree
+    );
+    const withAxTree = JSON.stringify(bodyPayload);
+    if (Buffer.byteLength(withAxTree) > LAMBDA_MAX_BODY_BYTES) {
+      console.log(`[fidel-ci] axtree_dropped_size bytes=${Buffer.byteLength(withAxTree)}`);
+      delete bodyPayload.axTree;
+      body = JSON.stringify(bodyPayload);
+    } else {
+      body = withAxTree;
+    }
+  } else {
+    body = JSON.stringify(bodyPayload);
+  }
   const bodySize = Buffer.byteLength(body);
   if (bodySize > WARNING_PAYLOAD_BYTES) {
     console.log(
@@ -793,7 +863,7 @@ async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, text
     headers["X-Pipeline-Secret"] = authToken;
   } else {
     headers.Authorization = `Bearer ${authToken}`;
-    headers.apikey = SUPABASE_ANON_KEY;
+    headers.apikey = apikey;
   }
   const response = await fetch(pipelineUrl, {
     method: "POST",
@@ -877,17 +947,11 @@ function fnv1a32(str) {
   }
   return (h >>> 0).toString(16).padStart(8, "0");
 }
-async function saveRunToSupabaseAsRunner(figmaUrl, liveUrl, pipeline, supabaseToken, elapsedMs) {
-  return saveRunToSupabaseWithOptions({
-    figmaUrl,
-    liveUrl,
-    pipeline,
-    supabaseToken,
-    elapsedMs,
-    source: "github-runner"
-  });
+async function saveRunForRunner(opts) {
+  assertUsableBackend(opts.backend, "save-run");
+  return saveRunTo(opts.backend, { ...opts, source: "github-runner" });
 }
-async function saveRunToSupabaseWithOptions(opts) {
+async function saveRunTo(backend, opts) {
   const { figmaUrl, liveUrl, supabaseToken, elapsedMs, errorPayload, errorMessage } = opts;
   const pipeline = opts.pipeline;
   const figmaFileKey = figmaUrl.match(/figma\.com\/(?:file|design)\/([a-zA-Z0-9]+)/)?.[1] ?? "";
@@ -934,12 +998,12 @@ async function saveRunToSupabaseWithOptions(opts) {
     body.isRetryable = errorPayload.isRetryable;
     body.errorMessage = errorMessage ?? errorPayload.userMessage;
   }
-  const resp = await fetch(`${SUPABASE_URL}/functions/v1/save-run`, {
+  const resp = await fetch(`${backend.url}/functions/v1/save-run`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${supabaseToken}`,
-      apikey: SUPABASE_ANON_KEY
+      apikey: backend.anonKey
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15e3)
@@ -1716,13 +1780,24 @@ function validateTriggers(value, location) {
   }
   return { paths: validated };
 }
+var MIN_VIEWPORT_PX = 320;
+var MAX_VIEWPORT_PX = 2560;
+function requireViewportAxis(value, location) {
+  const n = requirePositiveInteger(value, location);
+  if (n < MIN_VIEWPORT_PX || n > MAX_VIEWPORT_PX) {
+    throw new Error(
+      `${location} must be between ${MIN_VIEWPORT_PX} and ${MAX_VIEWPORT_PX} (got ${n})`
+    );
+  }
+  return n;
+}
 function validateViewport(value, location) {
   if (!isRecord(value)) {
     throw new Error(`${location} must be an object`);
   }
   return {
-    width: requirePositiveInteger(value.width, `${location}.width`),
-    height: requirePositiveInteger(value.height, `${location}.height`)
+    width: requireViewportAxis(value.width, `${location}.width`),
+    height: requireViewportAxis(value.height, `${location}.height`)
   };
 }
 function optionalWaitForLoadState(value, location) {
@@ -2518,7 +2593,12 @@ async function captureSnapshotViaLambda(lambdaUrl, lambdaSecret, options) {
     throw new Error(`Snapshot Lambda error (${resp.status}): ${data.error || "Unknown error"}${data.detail ? " \u2014 " + data.detail : ""}`);
   }
   console.log(`[fidel-runner] Snapshot Lambda returned ${data.domElements.length} elements in ${data.meta?.captureMs}ms`);
-  return data.domElements;
+  const axTree = data.axTree ?? null;
+  if (axTree) {
+    const semanticCount = Array.isArray(axTree.semanticNodes) ? axTree.semanticNodes.length : "?";
+    console.log(`[fidel-runner] Snapshot Lambda AX tree: ${semanticCount} semantic nodes`);
+  }
+  return { domElements: data.domElements, axTree };
 }
 function extractDesignSystemChecks(rawConfigJson) {
   if (!rawConfigJson) return [];
@@ -2742,8 +2822,21 @@ async function main() {
   console.log(`[fidel-runner] Running ${resolvedChecks.length} check(s)`);
   const results = [];
   const repositoryFullName = process.env.REPOSITORY || "";
+  const backend = {
+    url: process.env.SUPABASE_URL || "",
+    anonKey: supabaseAnonKey || ""
+  };
+  try {
+    assertUsableBackend(backend, "runner");
+  } catch (err) {
+    console.error(err.message);
+    console.error(
+      "[fidel-runner] SUPABASE_URL and SUPABASE_ANON_KEY must both name the project this dispatch targets. They are resolved together by the workflow's env gate; a missing or malformed pair is a configuration fault, not a check failure."
+    );
+    process.exit(1);
+  }
   for (const check of resolvedChecks) {
-    results.push(await runCheck(check, figmaToken, pipelineUrl, supabaseJwt, supabaseAnonKey || "", repositoryFullName, headSha || ""));
+    results.push(await runCheck(check, figmaToken, pipelineUrl, supabaseJwt, backend, repositoryFullName, headSha || ""));
   }
   const resultsB64 = Buffer.from(JSON.stringify(results)).toString("base64");
   const successCount = results.filter((r) => r.status === "success").length;
@@ -2768,7 +2861,7 @@ async function main() {
     process.exit(1);
   }
 }
-async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey, repositoryFullName, headSha) {
+async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, backend, repositoryFullName, headSha) {
   const startedAt = Date.now();
   console.log(`[fidel-runner] Running check "${check.name}"`);
   try {
@@ -2793,17 +2886,20 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey, 
     const snapshotLambdaUrl = process.env.SNAPSHOT_LAMBDA_URL;
     const snapshotLambdaSecret = process.env.SNAPSHOT_LAMBDA_SECRET || "";
     let domElements;
+    let axTree = null;
     if (snapshotLambdaUrl) {
       if (!snapshotLambdaSecret) {
         console.log("[fidel-runner] Warning: SNAPSHOT_LAMBDA_SECRET is not set \u2014 Lambda may reject unauthenticated requests");
       }
-      domElements = await captureSnapshotViaLambda(snapshotLambdaUrl, snapshotLambdaSecret, {
+      const lambdaResult = await captureSnapshotViaLambda(snapshotLambdaUrl, snapshotLambdaSecret, {
         url: check.url,
         viewport: check.viewport,
         waitAfterLoadMs: check.waitAfterLoadMs,
         waitForLoadState: check.waitForLoadState,
         waitForSelector: check.waitForSelector
       });
+      domElements = lambdaResult.domElements;
+      axTree = lambdaResult.axTree;
     } else {
       const snapshotResult = await captureSnapshot({
         url: check.url,
@@ -2813,6 +2909,7 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey, 
         waitForSelector: check.waitForSelector
       });
       domElements = snapshotResult.elements;
+      axTree = snapshotResult.axTree;
     }
     if (domElements.length === 0) {
       throw new Error("Snapshot returned zero DOM elements");
@@ -2823,20 +2920,28 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey, 
       check.figma,
       check.url
     );
-    const pipeline = await runPipeline(
+    const pipeline = await runPipelineWithBackend(
       figmaSpecs,
       domElements,
       pipelineUrl,
       supabaseToken,
       check.textMode,
       "supabase-jwt",
-      { figmaUrl: check.figma, liveUrl: check.url, idempotencyKey, viewport: check.viewport }
+      { figmaUrl: check.figma, liveUrl: check.url, idempotencyKey, viewport: check.viewport, axTree },
+      backend
     );
     const elapsedMs = Date.now() - startedAt;
     console.log(
       `[fidel-runner] "${check.name}" scored ${pipeline.score}/100 with ${pipeline.totalDiffs} issue(s)`
     );
-    saveRunToSupabaseAsRunner(check.figma, check.url, pipeline, supabaseToken, elapsedMs).catch((err) => {
+    saveRunForRunner({
+      figmaUrl: check.figma,
+      liveUrl: check.url,
+      pipeline,
+      supabaseToken,
+      elapsedMs,
+      backend
+    }).catch((err) => {
       console.log(`[fidel-runner] Save run failed (non-fatal): ${err.message}`);
     });
     return {
@@ -2857,7 +2962,7 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey, 
     const elapsedMs = Date.now() - startedAt;
     console.error(`[fidel-runner] Check "${check.name}" failed: ${message}`);
     const errorPayload = deriveErrorPayload(error, message);
-    saveRunToSupabaseWithOptions({
+    saveRunForRunner({
       figmaUrl: check.figma,
       liveUrl: check.url,
       pipeline: null,
@@ -2865,7 +2970,7 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, anonKey, 
       elapsedMs,
       errorPayload,
       errorMessage: message.slice(0, 500),
-      source: "github-runner"
+      backend
     }).catch((saveErr) => {
       console.log(`[fidel-runner] Save error run failed (non-fatal): ${saveErr.message}`);
     });

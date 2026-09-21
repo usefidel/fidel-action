@@ -24540,6 +24540,9 @@ function actionGates(c, failOnDrift) {
   return gatesCi(c, { failOnDrift, claimScope: "no_token_claims" }) || c.state === "operational_failure";
 }
 
+// node_modules/@usefidel/contracts/dist/pipeline-wire-version.js
+var PIPELINE_WIRE_VERSION = "fidel.pipeline-wire/1";
+
 // src/run-errors.ts
 var ERROR_CODE_META = {
   TARGET_AUTH_WALL: {
@@ -24647,6 +24650,11 @@ var ERROR_CODE_META = {
     userMessage: "A flow validation step failed. Check that all prototype transitions in the Figma file point to valid frames.",
     shortLabel: "Flow step failed"
   },
+  WIRE_SCHEMA_MISMATCH: {
+    retryable: false,
+    userMessage: "The Fidel Action and the Fidel service disagree on the request format. Update the Action.",
+    shortLabel: "Update the Action"
+  },
   UNKNOWN_ERROR: {
     retryable: true,
     userMessage: "Something went wrong during validation. Try again \u2014 if it keeps failing, contact support.",
@@ -24661,13 +24669,61 @@ var SUPABASE_ANON_KEY = "sb_publishable_JCHgvBld-swO93653cDH9A_urU0alOo";
 // src/pipeline.ts
 var DEFAULT_TIMEOUT_MS = 9e4;
 var WARNING_PAYLOAD_BYTES = 2 * 1024 * 1024;
+var LAMBDA_MAX_BODY_BYTES = 6 * 1024 * 1024;
+function toAxTreePayload(axTree) {
+  const stripChildren = (n) => ({ ...n, children: [] });
+  return {
+    semanticNodes: axTree.semanticNodes.map(stripChildren),
+    landmarks: axTree.landmarks.map(stripChildren),
+    pageWidth: axTree.pageWidth,
+    pageHeight: axTree.pageHeight,
+    domNodeCount: axTree.domNodeCount,
+    extractionTimeMs: axTree.extractionTimeMs
+  };
+}
 async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, textMode = "styling-only", authMode = "pipeline-secret", options = {}) {
-  const bodyPayload = { figmaSpecs, domElements, textMode };
+  return runPipelineInternal(
+    figmaSpecs,
+    domElements,
+    pipelineUrl,
+    authToken,
+    textMode,
+    authMode,
+    options,
+    SUPABASE_ANON_KEY
+  );
+}
+async function runPipelineInternal(figmaSpecs, domElements, pipelineUrl, authToken, textMode, authMode, options, apikey) {
+  const bodyPayload = {
+    // Brief 2.1. Declares which request contract this build speaks. Its
+    // ABSENCE means fidel.pipeline-wire/0 — a pre-2.1 Action — which the
+    // Lambda accepts or rejects per FIDEL_WIRE_STRICT.
+    wire: PIPELINE_WIRE_VERSION,
+    validationMode: "figma_vs_live",
+    figmaSpecs,
+    domElements,
+    textMode
+  };
   if (options.figmaUrl) bodyPayload.figmaUrl = options.figmaUrl;
   if (options.liveUrl) bodyPayload.liveUrl = options.liveUrl;
   if (options.idempotencyKey) bodyPayload.idempotencyKey = options.idempotencyKey;
   if (options.viewport) bodyPayload.viewport = options.viewport;
-  const body = JSON.stringify(bodyPayload);
+  let body;
+  if (options.axTree) {
+    bodyPayload.axTree = toAxTreePayload(
+      options.axTree
+    );
+    const withAxTree = JSON.stringify(bodyPayload);
+    if (Buffer.byteLength(withAxTree) > LAMBDA_MAX_BODY_BYTES) {
+      console.log(`[fidel-ci] axtree_dropped_size bytes=${Buffer.byteLength(withAxTree)}`);
+      delete bodyPayload.axTree;
+      body = JSON.stringify(bodyPayload);
+    } else {
+      body = withAxTree;
+    }
+  } else {
+    body = JSON.stringify(bodyPayload);
+  }
   const bodySize = Buffer.byteLength(body);
   if (bodySize > WARNING_PAYLOAD_BYTES) {
     console.log(
@@ -24681,7 +24737,7 @@ async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, text
     headers["X-Pipeline-Secret"] = authToken;
   } else {
     headers.Authorization = `Bearer ${authToken}`;
-    headers.apikey = SUPABASE_ANON_KEY;
+    headers.apikey = apikey;
   }
   const response = await fetch(pipelineUrl, {
     method: "POST",
@@ -24776,6 +24832,9 @@ async function saveRunToSupabase(figmaUrl, liveUrl, pipeline, supabaseToken, ela
   });
 }
 async function saveRunToSupabaseWithOptions(opts) {
+  return saveRunTo({ url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY }, opts);
+}
+async function saveRunTo(backend, opts) {
   const { figmaUrl, liveUrl, supabaseToken, elapsedMs, errorPayload, errorMessage } = opts;
   const pipeline = opts.pipeline;
   const figmaFileKey = figmaUrl.match(/figma\.com\/(?:file|design)\/([a-zA-Z0-9]+)/)?.[1] ?? "";
@@ -24822,12 +24881,12 @@ async function saveRunToSupabaseWithOptions(opts) {
     body.isRetryable = errorPayload.isRetryable;
     body.errorMessage = errorMessage ?? errorPayload.userMessage;
   }
-  const resp = await fetch(`${SUPABASE_URL}/functions/v1/save-run`, {
+  const resp = await fetch(`${backend.url}/functions/v1/save-run`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${supabaseToken}`,
-      apikey: SUPABASE_ANON_KEY
+      apikey: backend.anonKey
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(15e3)
@@ -25000,13 +25059,24 @@ function validateTriggers(value, location) {
   }
   return { paths: validated };
 }
+var MIN_VIEWPORT_PX = 320;
+var MAX_VIEWPORT_PX = 2560;
+function requireViewportAxis(value, location) {
+  const n = requirePositiveInteger(value, location);
+  if (n < MIN_VIEWPORT_PX || n > MAX_VIEWPORT_PX) {
+    throw new Error(
+      `${location} must be between ${MIN_VIEWPORT_PX} and ${MAX_VIEWPORT_PX} (got ${n})`
+    );
+  }
+  return n;
+}
 function validateViewport(value, location) {
   if (!isRecord(value)) {
     throw new Error(`${location} must be an object`);
   }
   return {
-    width: requirePositiveInteger(value.width, `${location}.width`),
-    height: requirePositiveInteger(value.height, `${location}.height`)
+    width: requireViewportAxis(value.width, `${location}.width`),
+    height: requireViewportAxis(value.height, `${location}.height`)
   };
 }
 function optionalWaitForLoadState(value, location) {
@@ -26861,7 +26931,7 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken) {
       warnFrameViewportMismatch(frameWidth, check.viewport.width);
     }
     await waitForUrl(check.url);
-    const { elements: domElements } = await captureSnapshot({
+    const { elements: domElements, axTree } = await captureSnapshot({
       url: check.url,
       viewport: check.viewport,
       waitAfterLoadMs: check.waitAfterLoadMs,
@@ -26878,7 +26948,7 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken) {
       supabaseToken,
       check.textMode,
       "supabase-jwt",
-      { viewport: check.viewport }
+      { viewport: check.viewport, axTree }
     );
     const elapsedMs = Date.now() - startedAt;
     console.log(
