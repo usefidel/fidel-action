@@ -767,6 +767,11 @@ var ERROR_CODE_META = {
     userMessage: "The Fidel Action and the Fidel service disagree on the request format. Update the Action.",
     shortLabel: "Update the Action"
   },
+  INCOMPATIBLE_ACTION_VERSION: {
+    retryable: false,
+    userMessage: "This Fidel Action is no longer compatible with the Fidel service. Upgrade to usefidel/fidel-action@v3.",
+    shortLabel: "Upgrade the Action"
+  },
   UNKNOWN_ERROR: {
     retryable: true,
     userMessage: "Something went wrong during validation. Try again \u2014 if it keeps failing, contact support.",
@@ -775,6 +780,7 @@ var ERROR_CODE_META = {
 };
 
 // src/pipeline.ts
+var PACKAGE_VERSION = "3.2.0";
 var DEFAULT_TIMEOUT_MS = 9e4;
 var WARNING_PAYLOAD_BYTES = 2 * 1024 * 1024;
 var LAMBDA_MAX_BODY_BYTES = 6 * 1024 * 1024;
@@ -788,6 +794,17 @@ function toAxTreePayload(axTree) {
     domNodeCount: axTree.domNodeCount,
     extractionTimeMs: axTree.extractionTimeMs
   };
+}
+var CONFIGURATION_ERROR_CODES = /* @__PURE__ */ new Set([
+  "INCOMPATIBLE_ACTION_VERSION",
+  "WIRE_SCHEMA_MISMATCH"
+]);
+function classifyFailureBatch(errorCodes) {
+  if (errorCodes.length === 0) return "none";
+  const allConfiguration = errorCodes.every(
+    (code) => typeof code === "string" && CONFIGURATION_ERROR_CODES.has(code)
+  );
+  return allConfiguration ? "configuration_required" : "operational_failure";
 }
 function assertUsableBackend(backend, context) {
   const fail = (why) => {
@@ -816,10 +833,11 @@ async function runPipelineWithBackend(figmaSpecs, domElements, pipelineUrl, auth
     textMode,
     authMode,
     options,
-    backend.anonKey
+    backend.anonKey,
+    "runner"
   );
 }
-async function runPipelineInternal(figmaSpecs, domElements, pipelineUrl, authToken, textMode, authMode, options, apikey) {
+async function runPipelineInternal(figmaSpecs, domElements, pipelineUrl, authToken, textMode, authMode, options, apikey, caller) {
   const bodyPayload = {
     // Brief 2.1. Declares which request contract this build speaks. Its
     // ABSENCE means fidel.pipeline-wire/0 — a pre-2.1 Action — which the
@@ -865,6 +883,7 @@ async function runPipelineInternal(figmaSpecs, domElements, pipelineUrl, authTok
     headers.Authorization = `Bearer ${authToken}`;
     headers.apikey = apikey;
   }
+  headers[caller === "runner" ? "X-Fidel-Runner-Version" : "X-Fidel-Action-Version"] = PACKAGE_VERSION;
   const response = await fetch(pipelineUrl, {
     method: "POST",
     headers,
@@ -881,7 +900,16 @@ async function runPipelineInternal(figmaSpecs, domElements, pipelineUrl, authTok
       const meta = ERROR_CODE_META[errorCode];
       if (meta) {
         const err = new Error(meta.userMessage);
-        err.pipelineErrorPayload = { errorCode, isRetryable: meta.retryable, userMessage: meta.userMessage };
+        const record = parsed && typeof parsed === "object" ? parsed : {};
+        const upgradeTo = typeof record.upgradeTo === "string" && record.upgradeTo.length <= 120 ? record.upgradeTo : void 0;
+        const docs = typeof record.docs === "string" && record.docs.length <= 300 ? record.docs : void 0;
+        err.pipelineErrorPayload = {
+          errorCode,
+          isRetryable: meta.retryable,
+          userMessage: meta.userMessage,
+          ...upgradeTo ? { upgradeTo } : {},
+          ...docs ? { docs } : {}
+        };
         throw err;
       }
     }
@@ -997,6 +1025,14 @@ async function saveRunTo(backend, opts) {
     body.errorCode = errorPayload.errorCode;
     body.isRetryable = errorPayload.isRetryable;
     body.errorMessage = errorMessage ?? errorPayload.userMessage;
+  }
+  const diagnostics = pipeline?.diagnostics;
+  if (diagnostics && typeof diagnostics === "object") {
+    if (typeof diagnostics.actionVersion === "string") body.actionVersion = diagnostics.actionVersion;
+    if (typeof diagnostics.runnerVersion === "string") body.runnerVersion = diagnostics.runnerVersion;
+    if (typeof diagnostics.pipelineBuild === "string") body.pipelineBuild = diagnostics.pipelineBuild;
+    if (typeof diagnostics.wire === "string") body.wireVersion = diagnostics.wire;
+    if (typeof diagnostics.clientWire === "string") body.inboundWire = diagnostics.clientWire;
   }
   const resp = await fetch(`${backend.url}/functions/v1/save-run`, {
     method: "POST",
@@ -1918,6 +1954,7 @@ var INCOMPLETE_REASONS = [
   "theme_anchor_unresolved",
   "brand_unresolved",
   "design_system_not_configured",
+  "incompatible_action_version",
   "result_read_failed",
   "run_not_finalized",
   "bypass_scan_incomplete",
@@ -1948,6 +1985,7 @@ var RESPONSIBILITY_CLASS = {
   theme_anchor_unresolved: "customer_configuration",
   brand_unresolved: "customer_configuration",
   design_system_not_configured: "customer_configuration",
+  incompatible_action_version: "customer_configuration",
   // Fidel's own machinery.
   result_read_failed: "fidel_system",
   run_not_finalized: "fidel_system",
@@ -2147,6 +2185,7 @@ var REASON_TEXT = {
   theme_anchor_unresolved: "This team has more than one connected repository and none is designated, so no design system could be selected.",
   brand_unresolved: "More than one brand exists and none was requested, so no brand could be selected.",
   design_system_not_configured: "No design system is connected for this repository.",
+  incompatible_action_version: "This Fidel Action is no longer compatible with the Fidel service. Upgrade to usefidel/fidel-action@v3.",
   result_read_failed: "The validation result could not be read back.",
   run_not_finalized: "The validation did not reach a final state.",
   bypass_scan_incomplete: "The design-system bypass scan did not cover every changed file.",
@@ -2841,13 +2880,23 @@ async function main() {
   const resultsB64 = Buffer.from(JSON.stringify(results)).toString("base64");
   const successCount = results.filter((r) => r.status === "success").length;
   const failCount = results.filter((r) => r.status === "failed").length;
-  const firstFailure = results.find((r) => r.status === "failed");
-  const errorCodeOutput = firstFailure ? deriveErrorPayload(new Error(firstFailure.error ?? ""), firstFailure.error ?? "").errorCode : "";
+  const failedResults = results.filter((r) => r.status === "failed");
+  const firstFailure = failedResults[0];
+  const failureClass = classifyFailureBatch(failedResults.map((r) => r.errorCode));
+  const errorCodeOutput = firstFailure?.errorCode ?? "";
   if (outputFile) {
     import_fs4.default.appendFileSync(outputFile, `results=${resultsB64}
 `);
     if (errorCodeOutput) {
       import_fs4.default.appendFileSync(outputFile, `error_code=${errorCodeOutput}
+`);
+    }
+    if (firstFailure?.upgradeTo) {
+      import_fs4.default.appendFileSync(outputFile, `upgrade_to=${firstFailure.upgradeTo}
+`);
+    }
+    if (failedResults.length > 0) {
+      import_fs4.default.appendFileSync(outputFile, `failure_class=${failureClass}
 `);
     }
     if (legs) {
@@ -2979,7 +3028,10 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, backend, 
       status: "failed",
       figmaUrl: check.figma,
       previewUrl: check.url,
-      error: message,
+      error: errorPayload.userMessage,
+      errorCode: errorPayload.errorCode,
+      upgradeTo: errorPayload.upgradeTo,
+      isRetryable: errorPayload.isRetryable,
       elapsedMs
     };
   }

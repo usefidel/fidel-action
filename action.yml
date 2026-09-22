@@ -26,9 +26,9 @@ inputs:
 
 outputs:
   score:
-    description: 'Lowest score across successful checks'
+    description: 'DEPRECATED (removed in v4): use figma-score. Lowest score across successful checks'
   issues-count:
-    description: 'Total issue count across successful checks'
+    description: 'DEPRECATED (removed in v4): use figma-issue-count. Total issue count across successful checks'
   # ── Result honesty (plan 051 P1-5) ──────────────────────────────────────
   # Set on EVERY exit path, including skips and fatal errors. An unset output
   # is an empty string, and an empty string reads as "fine" — so a consumer
@@ -40,11 +40,25 @@ outputs:
   verified:
     description: 'true only when the full required scope was inspected'
   drift-count:
-    description: 'Confirmed drift: a declared token whose rendered value differs. Meaningful only when verified is true'
+    description: 'DEPRECATED (removed in v4): use token-drift-count. Confirmed design-token drift only. For a Figma-only check this used to be the Figma issue total and is now 0, because Figma issues are not token drift'
   off-token-count:
-    description: 'Confirmed off-token violations: values using no design token. NOT drift, and never merged into drift-count'
+    description: 'DEPRECATED (removed in v4): use token-off-token-count. Confirmed off-token violations: values using no design token. NOT drift, and never merged into drift-count'
   confirmed-violation-count:
-    description: 'drift-count + off-token-count. This is what decides success eligibility'
+    description: 'DEPRECATED (removed in v4): use token-confirmed-violation-count. token drift-count + token off-token-count'
+  verdict:
+    description: 'fidel.verdict/1 JSON. Figma issues and design-token counts are separate lanes'
+  figma-score:
+    description: 'Lowest Figma comparison score across successful checks. Empty when that lane did not run'
+  figma-issue-count:
+    description: 'Figma comparison issue total. Empty when that lane did not run. Never a token count'
+  token-drift-count:
+    description: 'Confirmed design-token drift. 0 when the token lane did not run, which is not a pass'
+  token-off-token-count:
+    description: 'Confirmed off-token violations from the design-token lane. 0 when that lane did not run'
+  token-confirmed-violation-count:
+    description: 'token-drift-count + token-off-token-count'
+  blocked-by:
+    description: 'none, figma, tokens, or figma,tokens. When both lanes block, figma is the primary label and this output still names both'
   unverified-count:
     description: 'Checks that reached no verdict'
   partial-reasons:

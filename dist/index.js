@@ -4267,8 +4267,8 @@ var require_webidl = __commonJS({
       return new TypeError(`${message.header}: ${message.message}`);
     };
     webidl.errors.conversionFailed = function(context2) {
-      const plural = context2.types.length === 1 ? "" : " one of";
-      const message = `${context2.argument} could not be converted to${plural}: ${context2.types.join(", ")}.`;
+      const plural2 = context2.types.length === 1 ? "" : " one of";
+      const message = `${context2.argument} could not be converted to${plural2}: ${context2.types.join(", ")}.`;
       return webidl.errors.exception({
         header: context2.prefix,
         message
@@ -10870,9 +10870,9 @@ var require_pluralizer = __commonJS({
       this: "these"
     };
     module2.exports = class Pluralizer {
-      constructor(singular, plural) {
+      constructor(singular, plural2) {
         this.singular = singular;
-        this.plural = plural;
+        this.plural = plural2;
       }
       pluralize(count) {
         const one = count === 1;
@@ -23947,11 +23947,206 @@ async function getSpecsWithCache(fileKey, nodeId, figmaToken, fetchFn, options) 
 
 // src/comment.ts
 var github = __toESM(require_github());
+
+// src/verdict.ts
+var VERDICT_CONTRACT = "fidel.verdict/1";
+var PRIMARY_BLOCKER_PRECEDENCE = ["figma", "tokens"];
+var REASON_FIGMA = "Blocked by Figma comparison.";
+var REASON_TOKENS = "Blocked by design tokens.";
+var REASON_BOTH = "Blocked by Figma comparison and design tokens.";
+function isNonNegativeInt(v) {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 && Number.isFinite(v);
+}
+function isScore(v) {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0;
+}
+var VerdictValidationError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "VerdictValidationError";
+  }
+};
+function fail(message) {
+  throw new VerdictValidationError(message);
+}
+function verdictCompleteness(policy, tokens) {
+  const reasons = [...policy.reasons];
+  let state = policy.state;
+  const unavailable = tokens.driftCount === null || tokens.offTokenCount === null || tokens.unverifiedCount === null;
+  if (tokens.ran && unavailable && state === "complete") {
+    state = "unverified";
+    if (!reasons.includes("completeness_metadata_missing")) {
+      reasons.push("completeness_metadata_missing");
+    }
+  }
+  return {
+    state,
+    reasons,
+    verified: state === "complete",
+    driftCount: tokens.driftCount,
+    offTokenCount: tokens.offTokenCount,
+    unverifiedCount: tokens.unverifiedCount,
+    retryable: policy.retryable
+  };
+}
+function measuredPair(score, issueCount) {
+  const scoreOk = score === null || isScore(score);
+  const countOk = issueCount === null || isNonNegativeInt(issueCount);
+  if (!scoreOk || !countOk) return false;
+  return score === null === (issueCount === null);
+}
+function tokenCountOk(v) {
+  return v === null || isNonNegativeInt(v);
+}
+function buildVerdict(input) {
+  const { figma, tokens } = input;
+  if (!figma.ran) {
+    if (figma.score !== null || figma.issueCount !== null) {
+      fail("figma lane did not run but a score or issue count was set");
+    }
+  } else if (!measuredPair(figma.score, figma.issueCount)) {
+    fail("figma score and issueCount must both be measured or both be unavailable");
+  }
+  if (!tokenCountOk(tokens.driftCount) || !tokenCountOk(tokens.offTokenCount) || !tokenCountOk(tokens.unverifiedCount)) {
+    fail("token counts must be non-negative integers or null");
+  }
+  if (!tokens.ran) {
+    if (tokens.driftCount !== null || tokens.offTokenCount !== null || tokens.unverifiedCount !== null) {
+      fail("token lane did not run but a token count was set");
+    }
+  }
+  if (input.figmaBlocks && !figma.ran) fail("figma cannot block a lane that did not run");
+  if (input.tokensBlock && !tokens.ran) fail("tokens cannot block a lane that did not run");
+  const lanes = [];
+  if (input.figmaBlocks) lanes.push("figma");
+  if (input.tokensBlock) lanes.push("tokens");
+  let enforcement;
+  if (lanes.length === 0) {
+    enforcement = { blocked: false, by: null, reason: null };
+  } else if (lanes.length === 2) {
+    enforcement = { blocked: true, by: PRIMARY_BLOCKER_PRECEDENCE[0], reason: REASON_BOTH };
+  } else if (lanes[0] === "figma") {
+    enforcement = { blocked: true, by: "figma", reason: REASON_FIGMA };
+  } else {
+    enforcement = { blocked: true, by: "tokens", reason: REASON_TOKENS };
+  }
+  const confirmed = tokens.driftCount === null || tokens.offTokenCount === null ? null : tokens.driftCount + tokens.offTokenCount;
+  const completeness = verdictCompleteness(input.completeness, tokens);
+  if (completeness.driftCount !== tokens.driftCount || completeness.offTokenCount !== tokens.offTokenCount || completeness.unverifiedCount !== tokens.unverifiedCount) {
+    fail("completeness counts must equal the token lane counts");
+  }
+  if (completeness.verified !== (completeness.state === "complete")) {
+    fail("completeness.verified must mirror state === complete");
+  }
+  return {
+    contract: VERDICT_CONTRACT,
+    figma: {
+      ran: figma.ran,
+      score: figma.score,
+      issueCount: figma.issueCount
+    },
+    tokens: {
+      ran: tokens.ran,
+      driftCount: tokens.driftCount,
+      offTokenCount: tokens.offTokenCount,
+      unverifiedCount: tokens.unverifiedCount,
+      confirmedViolationCount: confirmed
+    },
+    completeness,
+    enforcement
+  };
+}
+var UNRUN_TOKENS = {
+  ran: false,
+  driftCount: null,
+  offTokenCount: null,
+  unverifiedCount: null
+};
+function actionFigmaVerdict(input) {
+  return buildVerdict({
+    figma: { ran: true, score: input.score, issueCount: input.issueCount },
+    tokens: UNRUN_TOKENS,
+    completeness: {
+      ...input.policy,
+      driftCount: null,
+      offTokenCount: null,
+      unverifiedCount: null
+    },
+    figmaBlocks: input.figmaBlocks,
+    tokensBlock: false
+  });
+}
+function unrunVerdict(policy) {
+  return buildVerdict({
+    figma: { ran: false, score: null, issueCount: null },
+    tokens: UNRUN_TOKENS,
+    completeness: {
+      ...policy,
+      driftCount: null,
+      offTokenCount: null,
+      unverifiedCount: null
+    },
+    figmaBlocks: false,
+    tokensBlock: false
+  });
+}
+function blockedByOutput(verdict) {
+  if (verdict.enforcement.reason === REASON_BOTH) return "figma,tokens";
+  if (verdict.enforcement.by === "figma") return "figma";
+  if (verdict.enforcement.by === "tokens") return "tokens";
+  return "none";
+}
+function verdictOutputs(verdict) {
+  return {
+    verdict: JSON.stringify(verdict),
+    "figma-score": verdict.figma.score === null ? "" : String(verdict.figma.score),
+    "figma-issue-count": verdict.figma.issueCount === null ? "" : String(verdict.figma.issueCount),
+    // Unrun token lane: the approved alias is "0". A ran lane with no
+    // measurement stays empty so a missing count is not printed as zero.
+    "token-drift-count": aliasCount(verdict.tokens.ran, verdict.tokens.driftCount),
+    "token-off-token-count": aliasCount(verdict.tokens.ran, verdict.tokens.offTokenCount),
+    "token-confirmed-violation-count": aliasCount(verdict.tokens.ran, verdict.tokens.confirmedViolationCount),
+    "blocked-by": blockedByOutput(verdict)
+  };
+}
+function aliasCount(ran, value) {
+  if (!ran) return "0";
+  return value === null ? "" : String(value);
+}
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+function figmaLaneCell(verdict) {
+  if (!verdict.figma.ran) return "Did not run";
+  if (verdict.figma.score === null || verdict.figma.issueCount === null) return "Attempted, not measured";
+  return `Score ${verdict.figma.score} \xB7 ${plural(verdict.figma.issueCount, "issue")}`;
+}
+function tokenLaneCell(verdict) {
+  if (!verdict.tokens.ran) return "Did not run";
+  if (verdict.tokens.driftCount === null || verdict.tokens.offTokenCount === null) {
+    return "Attempted, counts unavailable";
+  }
+  return `${plural(verdict.tokens.driftCount, "confirmed drift")} \xB7 ${plural(verdict.tokens.offTokenCount, "off-token violation")}`;
+}
+function formatLaneSection(verdict) {
+  const lines = [];
+  if (verdict.enforcement.reason) {
+    lines.push(`**${verdict.enforcement.reason}**`, "");
+  }
+  lines.push("| Lane | Result |");
+  lines.push("| --- | --- |");
+  lines.push(`| Figma comparison | ${figmaLaneCell(verdict)} |`);
+  lines.push(`| Design tokens | ${tokenLaneCell(verdict)} |`);
+  lines.push("");
+  return lines.join("\n");
+}
+
+// src/comment.ts
 var FIDEL_COMMENT_MARKER = "<!-- fidel-ci -->";
 var NPM_NAME_RE = /^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9-_.]*$/;
 var COMPONENT_NAME_RE = /^[A-Z][A-Za-z0-9]*$/;
 var FILE_PATH_RE = /^[a-zA-Z0-9_\-./]+$/;
-function formatComment(results, prior, screenshotUrl, bypass) {
+function formatComment(results, prior, screenshotUrl, bypass, verdict) {
   const successfulResults = results.filter(isSuccessfulResult);
   const failedResults = results.filter((r) => r.status === "failed");
   const lines = [
@@ -23959,6 +24154,9 @@ function formatComment(results, prior, screenshotUrl, bypass) {
     "## Fidel Design Validation",
     ""
   ];
+  if (verdict) {
+    lines.push(formatLaneSection(verdict).trimEnd(), "");
+  }
   if (results.length === 0) {
     lines.push("No checks were run.");
     appendBypassSection(lines, bypass);
@@ -24028,6 +24226,7 @@ function formatComment(results, prior, screenshotUrl, bypass) {
     lines.push("");
     for (const result of failedResults) {
       lines.push(`- **${esc(result.name)}**: ${esc(result.error)}`);
+      if (result.upgradeTo) lines.push(`  Upgrade to \`${esc(result.upgradeTo)}\`.`);
     }
     lines.push("");
   }
@@ -24287,6 +24486,7 @@ var INCOMPLETE_REASONS = [
   "theme_anchor_unresolved",
   "brand_unresolved",
   "design_system_not_configured",
+  "incompatible_action_version",
   "result_read_failed",
   "run_not_finalized",
   "bypass_scan_incomplete",
@@ -24313,6 +24513,7 @@ var RESPONSIBILITY_CLASS = {
   theme_anchor_unresolved: "customer_configuration",
   brand_unresolved: "customer_configuration",
   design_system_not_configured: "customer_configuration",
+  incompatible_action_version: "customer_configuration",
   // Fidel's own machinery.
   result_read_failed: "fidel_system",
   run_not_finalized: "fidel_system",
@@ -24329,7 +24530,8 @@ var APPLICABILITY_DEPENDENT = {
   token_reference_missing: true,
   theme_anchor_unresolved: false,
   brand_unresolved: false,
-  design_system_not_configured: false
+  design_system_not_configured: false,
+  incompatible_action_version: false
 };
 function isApplicabilityDependent(reason) {
   return APPLICABILITY_DEPENDENT[reason] === true;
@@ -24512,6 +24714,7 @@ var REASON_TEXT = {
   theme_anchor_unresolved: "This team has more than one connected repository and none is designated, so no design system could be selected.",
   brand_unresolved: "More than one brand exists and none was requested, so no brand could be selected.",
   design_system_not_configured: "No design system is connected for this repository.",
+  incompatible_action_version: "This Fidel Action is no longer compatible with the Fidel service. Upgrade to usefidel/fidel-action@v3.",
   result_read_failed: "The validation result could not be read back.",
   run_not_finalized: "The validation did not reach a final state.",
   bypass_scan_incomplete: "The design-system bypass scan did not cover every changed file.",
@@ -24655,6 +24858,11 @@ var ERROR_CODE_META = {
     userMessage: "The Fidel Action and the Fidel service disagree on the request format. Update the Action.",
     shortLabel: "Update the Action"
   },
+  INCOMPATIBLE_ACTION_VERSION: {
+    retryable: false,
+    userMessage: "This Fidel Action is no longer compatible with the Fidel service. Upgrade to usefidel/fidel-action@v3.",
+    shortLabel: "Upgrade the Action"
+  },
   UNKNOWN_ERROR: {
     retryable: true,
     userMessage: "Something went wrong during validation. Try again \u2014 if it keeps failing, contact support.",
@@ -24667,6 +24875,7 @@ var SUPABASE_URL = "https://ddufcgkwjcdseggjaiil.supabase.co";
 var SUPABASE_ANON_KEY = "sb_publishable_JCHgvBld-swO93653cDH9A_urU0alOo";
 
 // src/pipeline.ts
+var PACKAGE_VERSION = "3.2.0";
 var DEFAULT_TIMEOUT_MS = 9e4;
 var WARNING_PAYLOAD_BYTES = 2 * 1024 * 1024;
 var LAMBDA_MAX_BODY_BYTES = 6 * 1024 * 1024;
@@ -24681,6 +24890,17 @@ function toAxTreePayload(axTree) {
     extractionTimeMs: axTree.extractionTimeMs
   };
 }
+var CONFIGURATION_ERROR_CODES = /* @__PURE__ */ new Set([
+  "INCOMPATIBLE_ACTION_VERSION",
+  "WIRE_SCHEMA_MISMATCH"
+]);
+function classifyFailureBatch(errorCodes) {
+  if (errorCodes.length === 0) return "none";
+  const allConfiguration = errorCodes.every(
+    (code) => typeof code === "string" && CONFIGURATION_ERROR_CODES.has(code)
+  );
+  return allConfiguration ? "configuration_required" : "operational_failure";
+}
 async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, textMode = "styling-only", authMode = "pipeline-secret", options = {}) {
   return runPipelineInternal(
     figmaSpecs,
@@ -24690,10 +24910,11 @@ async function runPipeline(figmaSpecs, domElements, pipelineUrl, authToken, text
     textMode,
     authMode,
     options,
-    SUPABASE_ANON_KEY
+    SUPABASE_ANON_KEY,
+    "action"
   );
 }
-async function runPipelineInternal(figmaSpecs, domElements, pipelineUrl, authToken, textMode, authMode, options, apikey) {
+async function runPipelineInternal(figmaSpecs, domElements, pipelineUrl, authToken, textMode, authMode, options, apikey, caller) {
   const bodyPayload = {
     // Brief 2.1. Declares which request contract this build speaks. Its
     // ABSENCE means fidel.pipeline-wire/0 — a pre-2.1 Action — which the
@@ -24739,6 +24960,7 @@ async function runPipelineInternal(figmaSpecs, domElements, pipelineUrl, authTok
     headers.Authorization = `Bearer ${authToken}`;
     headers.apikey = apikey;
   }
+  headers[caller === "runner" ? "X-Fidel-Runner-Version" : "X-Fidel-Action-Version"] = PACKAGE_VERSION;
   const response = await fetch(pipelineUrl, {
     method: "POST",
     headers,
@@ -24755,7 +24977,16 @@ async function runPipelineInternal(figmaSpecs, domElements, pipelineUrl, authTok
       const meta = ERROR_CODE_META[errorCode];
       if (meta) {
         const err = new Error(meta.userMessage);
-        err.pipelineErrorPayload = { errorCode, isRetryable: meta.retryable, userMessage: meta.userMessage };
+        const record = parsed && typeof parsed === "object" ? parsed : {};
+        const upgradeTo = typeof record.upgradeTo === "string" && record.upgradeTo.length <= 120 ? record.upgradeTo : void 0;
+        const docs = typeof record.docs === "string" && record.docs.length <= 300 ? record.docs : void 0;
+        err.pipelineErrorPayload = {
+          errorCode,
+          isRetryable: meta.retryable,
+          userMessage: meta.userMessage,
+          ...upgradeTo ? { upgradeTo } : {},
+          ...docs ? { docs } : {}
+        };
         throw err;
       }
     }
@@ -24881,6 +25112,14 @@ async function saveRunTo(backend, opts) {
     body.isRetryable = errorPayload.isRetryable;
     body.errorMessage = errorMessage ?? errorPayload.userMessage;
   }
+  const diagnostics = pipeline?.diagnostics;
+  if (diagnostics && typeof diagnostics === "object") {
+    if (typeof diagnostics.actionVersion === "string") body.actionVersion = diagnostics.actionVersion;
+    if (typeof diagnostics.runnerVersion === "string") body.runnerVersion = diagnostics.runnerVersion;
+    if (typeof diagnostics.pipelineBuild === "string") body.pipelineBuild = diagnostics.pipelineBuild;
+    if (typeof diagnostics.wire === "string") body.wireVersion = diagnostics.wire;
+    if (typeof diagnostics.clientWire === "string") body.inboundWire = diagnostics.clientWire;
+  }
   const resp = await fetch(`${backend.url}/functions/v1/save-run`, {
     method: "POST",
     headers: {
@@ -24897,6 +25136,80 @@ async function saveRunTo(backend, opts) {
     const respBody = await resp.text().catch(() => "");
     console.error(`[fidel-ci] Failed to save run (non-fatal): HTTP ${resp.status}`, respBody.slice(0, 200));
   }
+}
+
+// src/action-report.ts
+function reportActionRun(input) {
+  if (input.kind === "skipped") {
+    const policy2 = buildCompleteness({
+      state: "unverified",
+      reasons: ["validation_not_attempted"],
+      retryable: false
+    });
+    return finish(policy2, unrunVerdict(policy2), false, null, null);
+  }
+  if (input.kind === "fatal") {
+    const policy2 = buildCompleteness({
+      state: "operational_failure",
+      reasons: ["run_not_finalized"],
+      retryable: true
+    });
+    return finish(policy2, unrunVerdict(policy2), false, null, null, 1);
+  }
+  const checks = input.checks ?? [];
+  const successes = checks.filter((check) => check.status === "success");
+  const failures = checks.filter((check) => check.status === "failed");
+  const measured = successes.every(
+    (check) => typeof check.score === "number" && typeof check.totalDiffs === "number"
+  );
+  const lowestScore = successes.length > 0 ? Math.min(...successes.map((check) => check.score ?? 0)) : 0;
+  const totalIssues = successes.reduce((sum, check) => sum + (check.totalDiffs ?? 0), 0);
+  const reasons = [];
+  if (input.bypassIncomplete) reasons.push("bypass_scan_incomplete");
+  const failureBatch = classifyFailureBatch(failures.map((check) => check.errorCode));
+  const operational = failureBatch === "operational_failure" || failures.length === 0 && successes.length === 0;
+  const configuration = failureBatch === "configuration_required";
+  const policy = buildCompleteness({
+    state: operational ? "operational_failure" : configuration ? "configuration_required" : reasons.length > 0 ? "partial" : "complete",
+    reasons: operational ? ["run_not_finalized"] : configuration ? ["incompatible_action_version"] : reasons,
+    // Historical policy input. Not token drift. See the file header.
+    driftCount: totalIssues,
+    offTokenCount: 0,
+    unverifiedCount: 0,
+    retryable: operational
+  });
+  const enforced = input.enforced === true;
+  const verdict = actionFigmaVerdict({
+    score: successes.length > 0 && measured ? lowestScore : null,
+    issueCount: successes.length > 0 && measured ? totalIssues : null,
+    policy,
+    figmaBlocks: actionGates(policy, enforced)
+  });
+  return finish(
+    policy,
+    verdict,
+    enforced,
+    String(lowestScore),
+    String(totalIssues)
+  );
+}
+function finish(policy, verdict, enforced, score, issuesCount, exitOverride) {
+  const outputs = verdictOutputs(verdict);
+  return {
+    policy,
+    verdict,
+    result: ciOutcomeFor(policy),
+    completeness: policy.state,
+    score,
+    issuesCount,
+    exitCode: exitOverride ?? (actionGates(policy, enforced) ? 1 : 0),
+    outputs: {
+      ...outputs,
+      "drift-count": outputs["token-drift-count"],
+      "off-token-count": outputs["token-off-token-count"],
+      "confirmed-violation-count": outputs["token-confirmed-violation-count"]
+    }
+  };
 }
 
 // src/bypass-detect-client.ts
@@ -26611,7 +26924,7 @@ async function run() {
       core.notice("No Figma checks configured. Nothing to compare \u2014 this is not a failure.");
       core.setOutput("skipped", "true");
       core.setOutput("skip-reason", "no_figma_checks");
-      emitResultOutputs(notAttemptedCompleteness());
+      emitReport(reportActionRun({ kind: "skipped" }));
       return;
     }
     const resolvedChecks = config.checks.map((check) => resolveCheck(check, config.defaults, templateVariables));
@@ -26632,7 +26945,7 @@ async function run() {
         core.notice("Skipping: no frontend changes detected in this PR");
         core.setOutput("skipped", "true");
         core.setOutput("skip-reason", "no_frontend_changes");
-        emitResultOutputs(notAttemptedCompleteness());
+        emitReport(reportActionRun({ kind: "skipped" }));
         void recordSkipTelemetry(supabaseAccessToken, {
           changed_file_count: changedFilesResult.files.length,
           pattern_count: triggerPatterns.length,
@@ -26671,29 +26984,11 @@ async function run() {
         console.error("[fidel-ci] Screenshot capture failed (non-fatal):", err.message);
       }
     }
-    const { bypassIncomplete } = await maybePostPullRequestComment(githubToken, results, screenshotUrl, {
+    const comment = await preparePullRequestComment(githubToken, results, screenshotUrl, {
       supabaseAccessToken,
       changedFilesResult
     });
-    const reasons = [];
-    if (bypassIncomplete) reasons.push("bypass_scan_incomplete");
-    const operational = successfulResults.length === 0 || failedResults.length > 0;
-    const completeness = buildCompleteness({
-      state: operational ? "operational_failure" : reasons.length > 0 ? "partial" : "complete",
-      // An operational failure keeps `run_not_finalized` rather than falling
-      // through to the generic "no completeness information" default, which
-      // would describe the wrong problem to the reader.
-      reasons: operational ? ["run_not_finalized"] : reasons,
-      driftCount: totalIssues,
-      // Both explicitly zero, not omitted. The Figma comparison reaches a
-      // verdict on every property it checks and has no design-token concept at
-      // all, so "no unverified findings" and "no off-token findings" are true
-      // statements about this run rather than absent counts — and an omitted
-      // count now (correctly) degrades a `complete` state to unverified.
-      offTokenCount: 0,
-      unverifiedCount: 0,
-      retryable: operational
-    });
+    const bypassIncomplete = comment.bypassIncomplete;
     const enforcement = resolveActionDriftEnforcement({
       failOnDriftInput,
       failOnScore,
@@ -26701,15 +26996,28 @@ async function run() {
       successfulCount: successfulResults.length
     });
     const failOnDrift = enforcement.enforced;
+    const reported = reportActionRun({
+      kind: "checks",
+      checks: results.map((result) => result.status === "success" ? { status: "success", score: result.pipeline.score, totalDiffs: result.pipeline.totalDiffs } : { status: "failed", errorCode: result.errorCode }),
+      bypassIncomplete: Boolean(bypassIncomplete),
+      enforced: failOnDrift
+    });
+    const completeness = reported.policy;
+    const verdict = reported.verdict;
+    await comment.publish(verdict);
     emitResultOutputs(completeness, failOnDrift);
+    emitLaneOutputs(verdict);
+    const upgradeLines = failedResults.map((result) => result.upgradeTo).filter((line) => typeof line === "string" && line.length > 0).map((target) => `Upgrade to ${target}.`);
     await writeJobSummary(completeness, {
       checks: results.length,
       lowestScore,
       failedCount: failedResults.length,
       bypassIncompleteReason: bypassIncomplete?.reason,
-      driftEnforced: failOnDrift
+      driftEnforced: failOnDrift,
+      upgradeLines,
+      verdict
     });
-    if (actionGates(completeness, failOnDrift)) {
+    if (reported.exitCode === 1) {
       const failures = [];
       if (successfulResults.length === 0) failures.push("No checks completed successfully");
       if (failedResults.length > 0) failures.push(`${failedResults.length} check(s) failed`);
@@ -26718,6 +27026,7 @@ async function run() {
         failures.push(enforcement.source === "fail-on-score" ? `Design validation score ${lowestScore} is below threshold ${failOnScore}` : formatViolationCounts(completeness, totalIssues));
       }
       for (const line of describeReasons(completeness.reasons)) failures.push(line);
+      for (const line of upgradeLines) failures.push(line);
       core.setFailed(`${summaryHeadline(completeness)}: ${failures.join("; ")}`);
     } else {
       const decision = conclusionFor(completeness, {
@@ -26737,14 +27046,20 @@ async function run() {
     }
   } catch (error) {
     console.error("[fidel-ci] Fatal error:", error.message || String(error));
-    const completeness = buildCompleteness({
-      state: "operational_failure",
-      reasons: ["run_not_finalized"],
-      retryable: true
-    });
-    emitResultOutputs(completeness);
+    emitReport(reportActionRun({ kind: "fatal" }));
     core.setFailed("Fidel validation failed. Check the logs for details.");
   }
+}
+function emitReport(reported) {
+  emitResultOutputs(reported.policy);
+  emitLaneOutputs(reported.verdict);
+}
+function emitLaneOutputs(verdict) {
+  const outputs = verdictOutputs(verdict);
+  for (const [key, value] of Object.entries(outputs)) core.setOutput(key, value);
+  core.setOutput("drift-count", outputs["token-drift-count"]);
+  core.setOutput("off-token-count", outputs["token-off-token-count"]);
+  core.setOutput("confirmed-violation-count", outputs["token-confirmed-violation-count"]);
 }
 function emitResultOutputs(c, driftEnforced = false) {
   core.setOutput("result", ciOutcomeFor(c));
@@ -26785,20 +27100,14 @@ function resolveActionDriftEnforcement(input) {
   }
   return { enforced: false, source: "default" };
 }
-function notAttemptedCompleteness() {
-  return buildCompleteness({
-    state: "unverified",
-    reasons: ["validation_not_attempted"],
-    retryable: false
-  });
-}
 async function writeJobSummary(c, ctx) {
   try {
     const lines = [`### Fidel \u2014 ${summaryHeadline(c)}`, ""];
+    if (ctx.verdict) lines.push(formatLaneSection(ctx.verdict).trimEnd(), "");
     lines.push(`- Checks run: ${ctx.checks}`);
     if (ctx.failedCount > 0) lines.push(`- Checks that failed to run: ${ctx.failedCount}`);
     const confirmed = confirmedViolationCount(c);
-    if (c.verified && confirmed !== null) {
+    if (!ctx.verdict && c.verified && confirmed !== null) {
       lines.push(`- Findings: ${formatViolationCounts(c)}`);
     }
     if (c.verified && confirmed !== null && confirmed > 0 && !ctx.driftEnforced) {
@@ -26806,6 +27115,7 @@ async function writeJobSummary(c, ctx) {
     }
     for (const reason of describeReasons(c.reasons)) lines.push(`- ${reason}`);
     if (ctx.bypassIncompleteReason) lines.push(`- Bypass scan detail: ${ctx.bypassIncompleteReason}`);
+    for (const line of ctx.upgradeLines ?? []) lines.push(`- ${line}`);
     await core.summary.addRaw(lines.join("\n")).write();
   } catch (err) {
     console.log(`[fidel-ci] Could not write job summary (non-fatal): ${err.message}`);
@@ -26991,19 +27301,22 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken) {
       previewUrl: check.url,
       error: commentError,
       errorCode: errorPayload?.errorCode,
+      upgradeTo: errorPayload?.upgradeTo,
       elapsedMs: Date.now() - startedAt
     };
   }
 }
-async function maybePostPullRequestComment(githubToken, results, screenshotUrl, bypassCtx) {
+async function preparePullRequestComment(githubToken, results, screenshotUrl, bypassCtx) {
   const pullRequest = github2.context.payload.pull_request;
   if (!pullRequest) {
     console.log("[fidel-ci] No pull request context detected; skipping comment");
-    return {};
+    return { publish: async () => {
+    } };
   }
   if (!githubToken) {
     core.warning("No github-token provided; skipping PR comment");
-    return {};
+    return { publish: async () => {
+    } };
   }
   const repository = getRepository();
   let prior = null;
@@ -27060,14 +27373,18 @@ async function maybePostPullRequestComment(githubToken, results, screenshotUrl, 
       }
     }
   }
-  const commentBody = formatComment(results, prior ?? void 0, screenshotUrl, {
-    bypassFindings,
-    bypassHeadSha: headSha,
-    bypassIncomplete
-  });
-  const commentId = await postOrUpdateComment(githubToken, repository, pullRequest.number, commentBody);
-  console.log(`[fidel-ci] Updated PR comment ${commentId}`);
-  return { bypassIncomplete };
+  return {
+    bypassIncomplete,
+    publish: async (verdict) => {
+      const commentBody = formatComment(results, prior ?? void 0, screenshotUrl, {
+        bypassFindings,
+        bypassHeadSha: headSha,
+        bypassIncomplete
+      }, verdict);
+      const commentId = await postOrUpdateComment(githubToken, repository, pullRequest.number, commentBody);
+      console.log(`[fidel-ci] Updated PR comment ${commentId}`);
+    }
+  };
 }
 function getRepository() {
   const owner = github2.context.repo.owner || process.env.GITHUB_REPOSITORY_OWNER;

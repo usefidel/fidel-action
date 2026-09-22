@@ -156,14 +156,21 @@ empty string, and an empty string reads as "fine".
 
 | Output | Description |
 |---|---|
-| `score` | Lowest score across successful checks. |
-| `issues-count` | Total issue count across successful checks. |
-| `result` | `pass` · `fail_violation` · `incomplete` · `fail_operational`. |
+| `verdict` | `fidel.verdict/1` JSON. Figma issues and design-token counts are separate lanes. |
+| `figma-score` | Lowest Figma comparison score. Empty when that lane did not run. |
+| `figma-issue-count` | Figma comparison issue total. Empty when that lane did not run. |
+| `token-drift-count` | Confirmed design-token drift. `0` when the token lane did not run. That `0` is not a pass. |
+| `token-off-token-count` | Confirmed off-token violations from the token lane. |
+| `token-confirmed-violation-count` | `token-drift-count` + `token-off-token-count`. |
+| `blocked-by` | `none`, `figma`, `tokens`, or `figma,tokens`. |
+| `score` | **DEPRECATED (removed in v4): use `figma-score`.** Lowest score across successful checks. |
+| `issues-count` | **DEPRECATED (removed in v4): use `figma-issue-count`.** Total Figma issue count. |
+| `result` | `pass` · `fail_violation` · `incomplete` · `fail_operational`. Unchanged by the lane split. |
 | `completeness` | `complete` · `partial` · `unverified` · `configuration_required` · `operational_failure`. |
 | `verified` | `true` only when the full required scope was inspected. |
-| `drift-count` | Confirmed drift: a declared token whose rendered value differs. Meaningful only when `verified` is `true`. |
-| `off-token-count` | Confirmed off-token violations: values using no design token at all. These are **not** drift and are never merged into `drift-count`. |
-| `confirmed-violation-count` | `drift-count` + `off-token-count`. This is what decides whether the run is clean. |
+| `drift-count` | **DEPRECATED (removed in v4): use `token-drift-count`.** Confirmed design-token drift. **For a Figma-only check this used to be the Figma issue total. It is now `0`.** Figma issues are not token drift. |
+| `off-token-count` | **DEPRECATED (removed in v4): use `token-off-token-count`.** Off-token violations. Not drift. |
+| `confirmed-violation-count` | **DEPRECATED (removed in v4): use `token-confirmed-violation-count`.** |
 | `unverified-count` | Checks that reached no verdict. |
 | `partial-reasons` | Comma-separated reasons the result is not complete. |
 | `retryable` | `true` when re-running could plausibly produce a different answer. |
