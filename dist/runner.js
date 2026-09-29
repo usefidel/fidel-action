@@ -780,7 +780,7 @@ var ERROR_CODE_META = {
 };
 
 // src/pipeline.ts
-var PACKAGE_VERSION = "3.2.0";
+var PACKAGE_VERSION = "3.2.2";
 var DEFAULT_TIMEOUT_MS = 9e4;
 var WARNING_PAYLOAD_BYTES = 2 * 1024 * 1024;
 var LAMBDA_MAX_BODY_BYTES = 6 * 1024 * 1024;
@@ -1877,6 +1877,7 @@ function isRecord(value) {
 }
 
 // src/cache.ts
+var import_crypto = __toESM(require("crypto"));
 var import_fs3 = __toESM(require("fs"));
 var import_path3 = __toESM(require("path"));
 var DEFAULT_TTL_MS = 24 * 60 * 60 * 1e3;
@@ -1884,8 +1885,8 @@ function getCacheDir(baseDir) {
   return baseDir || import_path3.default.join(process.cwd(), ".fidel-cache");
 }
 function getCacheFilePath(fileKey, nodeId, baseDir) {
-  const safeNodeId = nodeId.replace(/:/g, "-");
-  return import_path3.default.join(getCacheDir(baseDir), `${fileKey}-${safeNodeId}.json`);
+  const name = import_crypto.default.createHash("sha256").update(`${fileKey}:${nodeId}`).digest("hex");
+  return import_path3.default.join(getCacheDir(baseDir), `${name}.json`);
 }
 function getCachedSpecs(fileKey, nodeId, options) {
   const filePath = getCacheFilePath(fileKey, nodeId, options?.cacheDir);
@@ -1894,6 +1895,7 @@ function getCachedSpecs(fileKey, nodeId, options) {
     if (!import_fs3.default.existsSync(filePath)) return null;
     const raw = import_fs3.default.readFileSync(filePath, "utf8");
     const entry = JSON.parse(raw);
+    if (entry.fileKey !== fileKey || entry.nodeId !== nodeId) return null;
     if (Date.now() - entry.timestamp > ttl) {
       console.log(`[fidel-ci] Cache expired for ${fileKey}:${nodeId}`);
       return null;

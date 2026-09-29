@@ -181,7 +181,7 @@ var require_file_command = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.prepareKeyValueMessage = exports2.issueFileCommand = void 0;
-    var crypto = __importStar(require("crypto"));
+    var crypto2 = __importStar(require("crypto"));
     var fs4 = __importStar(require("fs"));
     var os = __importStar(require("os"));
     var utils_1 = require_utils();
@@ -199,7 +199,7 @@ var require_file_command = __commonJS({
     }
     exports2.issueFileCommand = issueFileCommand;
     function prepareKeyValueMessage(key, value) {
-      const delimiter = `ghadelimiter_${crypto.randomUUID()}`;
+      const delimiter = `ghadelimiter_${crypto2.randomUUID()}`;
       const convertedValue = (0, utils_1.toCommandValue)(value);
       if (key.includes(delimiter)) {
         throw new Error(`Unexpected input: name should not contain the delimiter "${delimiter}"`);
@@ -3634,11 +3634,11 @@ var require_util2 = __commonJS({
     var assert = require("assert");
     var { isUint8Array } = require("util/types");
     var supportedHashes = [];
-    var crypto;
+    var crypto2;
     try {
-      crypto = require("crypto");
+      crypto2 = require("crypto");
       const possibleRelevantHashes = ["sha256", "sha384", "sha512"];
-      supportedHashes = crypto.getHashes().filter((hash) => possibleRelevantHashes.includes(hash));
+      supportedHashes = crypto2.getHashes().filter((hash) => possibleRelevantHashes.includes(hash));
     } catch {
     }
     function responseURL(response) {
@@ -3915,7 +3915,7 @@ var require_util2 = __commonJS({
       }
     }
     function bytesMatch(bytes, metadataList) {
-      if (crypto === void 0) {
+      if (crypto2 === void 0) {
         return true;
       }
       const parsedMetadata = parseMetadata(metadataList);
@@ -3930,7 +3930,7 @@ var require_util2 = __commonJS({
       for (const item of metadata) {
         const algorithm = item.algo;
         const expectedValue = item.hash;
-        let actualValue = crypto.createHash(algorithm).update(bytes).digest("base64");
+        let actualValue = crypto2.createHash(algorithm).update(bytes).digest("base64");
         if (actualValue[actualValue.length - 1] === "=") {
           if (actualValue[actualValue.length - 2] === "=") {
             actualValue = actualValue.slice(0, -2);
@@ -5276,8 +5276,8 @@ var require_body = __commonJS({
     var { parseMIMEType, serializeAMimeType } = require_dataURL();
     var random;
     try {
-      const crypto = require("node:crypto");
-      random = (max) => crypto.randomInt(0, max);
+      const crypto2 = require("node:crypto");
+      random = (max) => crypto2.randomInt(0, max);
     } catch {
       random = (max) => Math.floor(Math.random(max));
     }
@@ -16327,9 +16327,9 @@ var require_connection = __commonJS({
     channels.open = diagnosticsChannel.channel("undici:websocket:open");
     channels.close = diagnosticsChannel.channel("undici:websocket:close");
     channels.socketError = diagnosticsChannel.channel("undici:websocket:socket_error");
-    var crypto;
+    var crypto2;
     try {
-      crypto = require("crypto");
+      crypto2 = require("crypto");
     } catch {
     }
     function establishWebSocketConnection(url, protocols, ws, onEstablish, options) {
@@ -16348,7 +16348,7 @@ var require_connection = __commonJS({
         const headersList = new Headers(options.headers)[kHeadersList];
         request.headersList = headersList;
       }
-      const keyValue = crypto.randomBytes(16).toString("base64");
+      const keyValue = crypto2.randomBytes(16).toString("base64");
       request.headersList.append("sec-websocket-key", keyValue);
       request.headersList.append("sec-websocket-version", "13");
       for (const protocol of protocols) {
@@ -16377,7 +16377,7 @@ var require_connection = __commonJS({
             return;
           }
           const secWSAccept = response.headersList.get("Sec-WebSocket-Accept");
-          const digest = crypto.createHash("sha1").update(keyValue + uid).digest("base64");
+          const digest = crypto2.createHash("sha1").update(keyValue + uid).digest("base64");
           if (secWSAccept !== digest) {
             failWebsocketConnection(ws, "Incorrect hash received in Sec-WebSocket-Accept header.");
             return;
@@ -16457,9 +16457,9 @@ var require_frame = __commonJS({
   "node_modules/undici/lib/websocket/frame.js"(exports2, module2) {
     "use strict";
     var { maxUnsigned16Bit } = require_constants5();
-    var crypto;
+    var crypto2;
     try {
-      crypto = require("crypto");
+      crypto2 = require("crypto");
     } catch {
     }
     var WebsocketFrameSend = class {
@@ -16468,7 +16468,7 @@ var require_frame = __commonJS({
        */
       constructor(data) {
         this.frameData = data;
-        this.maskKey = crypto.randomBytes(4);
+        this.maskKey = crypto2.randomBytes(4);
       }
       createFrame(opcode) {
         const bodyLength = this.frameData?.byteLength ?? 0;
@@ -23893,6 +23893,7 @@ var core = __toESM(require_core());
 var github2 = __toESM(require_github());
 
 // src/cache.ts
+var import_crypto = __toESM(require("crypto"));
 var import_fs = __toESM(require("fs"));
 var import_path = __toESM(require("path"));
 var DEFAULT_TTL_MS = 24 * 60 * 60 * 1e3;
@@ -23900,8 +23901,8 @@ function getCacheDir(baseDir) {
   return baseDir || import_path.default.join(process.cwd(), ".fidel-cache");
 }
 function getCacheFilePath(fileKey, nodeId, baseDir) {
-  const safeNodeId = nodeId.replace(/:/g, "-");
-  return import_path.default.join(getCacheDir(baseDir), `${fileKey}-${safeNodeId}.json`);
+  const name = import_crypto.default.createHash("sha256").update(`${fileKey}:${nodeId}`).digest("hex");
+  return import_path.default.join(getCacheDir(baseDir), `${name}.json`);
 }
 function getCachedSpecs(fileKey, nodeId, options) {
   const filePath = getCacheFilePath(fileKey, nodeId, options?.cacheDir);
@@ -23910,6 +23911,7 @@ function getCachedSpecs(fileKey, nodeId, options) {
     if (!import_fs.default.existsSync(filePath)) return null;
     const raw = import_fs.default.readFileSync(filePath, "utf8");
     const entry = JSON.parse(raw);
+    if (entry.fileKey !== fileKey || entry.nodeId !== nodeId) return null;
     if (Date.now() - entry.timestamp > ttl) {
       console.log(`[fidel-ci] Cache expired for ${fileKey}:${nodeId}`);
       return null;
@@ -24141,6 +24143,80 @@ function formatLaneSection(verdict) {
   return lines.join("\n");
 }
 
+// src/markdown.ts
+var ZWSP = "\u200B";
+var ENTITY_CHARS = /* @__PURE__ */ new Set([
+  "\\",
+  "`",
+  "*",
+  "_",
+  "{",
+  "}",
+  "[",
+  "]",
+  "(",
+  ")",
+  "#",
+  "+",
+  "-",
+  ".",
+  "!",
+  "|",
+  "<",
+  ">",
+  "&",
+  "~",
+  "$",
+  ":",
+  "@"
+]);
+var BREAK_AFTER = /* @__PURE__ */ new Set(["@", "#", ":", "$"]);
+var BREAK_BEFORE = /* @__PURE__ */ new Set(["$"]);
+var CONTROL_OR_BREAK = /[\u0000-\u001F\u007F-\u009F\u2028\u2029]+/g;
+var MAX_FIELD_CODE_POINTS = 300;
+var MAX_COMMENT_CHARS = 6e4;
+function truncateCodePoints(value, max) {
+  const cps = Array.from(value);
+  return cps.length > max ? cps.slice(0, max - 1).join("") + "\u2026" : value;
+}
+function escapeMarkdown(value, maxCodePoints = MAX_FIELD_CODE_POINTS) {
+  const flat = truncateCodePoints(String(value ?? "").replace(CONTROL_OR_BREAK, " "), maxCodePoints);
+  let out = "";
+  for (const ch of flat) {
+    if (ENTITY_CHARS.has(ch)) {
+      if (BREAK_BEFORE.has(ch)) out += ZWSP;
+      out += `&#${ch.codePointAt(0)};`;
+      if (BREAK_AFTER.has(ch)) out += ZWSP;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+function escapeTable(value, maxCodePoints = MAX_FIELD_CODE_POINTS) {
+  return escapeMarkdown(value, maxCodePoints);
+}
+function capCommentBody(body, maxChars = MAX_COMMENT_CHARS) {
+  if (body.length <= maxChars) return body;
+  const note = "\n\n_Comment truncated: too many findings to show here. See the full report._";
+  const cut = body.lastIndexOf("\n", maxChars - note.length);
+  return body.slice(0, cut > 0 ? cut : maxChars - note.length) + note;
+}
+function escapeInline(value, maxCodePoints = MAX_FIELD_CODE_POINTS) {
+  return truncateCodePoints(String(value ?? "").replace(CONTROL_OR_BREAK, " "), maxCodePoints).replace(/`/g, "'").replace(/\|/g, "\\|");
+}
+function safeLinkTarget(value) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 2048) return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:") return null;
+  return url.href.replace(/[()|<>\s`\\]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0"));
+}
+
 // src/comment.ts
 var FIDEL_COMMENT_MARKER = "<!-- fidel-ci -->";
 var NPM_NAME_RE = /^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9-_.]*$/;
@@ -24169,20 +24245,21 @@ function formatComment(results, prior, screenshotUrl, bypass, verdict) {
       const counts = countBySeverity(result.pipeline.diffs);
       const scoreBadge = formatScore(result.pipeline.score);
       lines.push(
-        `| [${esc(result.name)}](${result.figmaUrl}) | [Open](${result.previewUrl}) | ${scoreBadge} | ${counts.critical} | ${counts.high} | ${counts.medium} | Passed |`
+        `| ${linkOrText(esc(result.name), result.figmaUrl)} | ${linkOrText("Open", result.previewUrl, "\u2014")} | ${scoreBadge} | ${counts.critical} | ${counts.high} | ${counts.medium} | Passed |`
       );
     } else {
       lines.push(
-        `| ${esc(result.name)} | [Open](${result.previewUrl}) | \u2014 | \u2014 | \u2014 | \u2014 | Failed |`
+        `| ${esc(result.name)} | ${linkOrText("Open", result.previewUrl, "\u2014")} | \u2014 | \u2014 | \u2014 | \u2014 | Failed |`
       );
     }
   }
   lines.push("");
-  if (screenshotUrl) {
+  const screenshotTarget = safeLinkTarget(screenshotUrl);
+  if (screenshotTarget) {
     lines.push("<details>");
     lines.push("<summary>Annotated screenshot</summary>");
     lines.push("");
-    lines.push(`![Fidel annotated screenshot](${screenshotUrl})`);
+    lines.push(`![Fidel annotated screenshot](${screenshotTarget})`);
     lines.push("");
     lines.push("</details>");
     lines.push("");
@@ -24226,7 +24303,7 @@ function formatComment(results, prior, screenshotUrl, bypass, verdict) {
     lines.push("");
     for (const result of failedResults) {
       lines.push(`- **${esc(result.name)}**: ${esc(result.error)}`);
-      if (result.upgradeTo) lines.push(`  Upgrade to \`${esc(result.upgradeTo)}\`.`);
+      if (result.upgradeTo) lines.push(`  Upgrade to \`${escCode(result.upgradeTo)}\`.`);
     }
     lines.push("");
   }
@@ -24278,13 +24355,16 @@ function renderBypassSection(opts) {
 function escapeBypassText(text) {
   return text.replace(/[<>]/g, (c) => c === "<" ? "&lt;" : "&gt;");
 }
+function markerSafe(value) {
+  return value.replace(/[%<>\r\n]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0"));
+}
 function collectDiffs(results) {
   const all = [];
   let num = 1;
   for (const result of results) {
     for (let i = 0; i < result.pipeline.diffs.length; i++) {
       all.push({
-        id: `${result.name}:${i}`,
+        id: `${markerSafe(result.name)}:${i}`,
         num: num++,
         diff: result.pipeline.diffs[i],
         checkName: result.name
@@ -24377,7 +24457,8 @@ function parsePriorState(commentBody, replyBodies) {
   }
   return { accepted, ignored };
 }
-async function postOrUpdateComment(githubToken, repository, pullRequestNumber, body) {
+async function postOrUpdateComment(githubToken, repository, pullRequestNumber, rawBody) {
+  const body = capCommentBody(rawBody);
   const octokit = github.getOctokit(githubToken);
   const comments = await octokit.paginate(octokit.rest.issues.listComments, {
     owner: repository.owner,
@@ -24459,13 +24540,18 @@ function isSuccessfulResult(r) {
   return r.status === "success";
 }
 function esc(value) {
-  return value.replace(/[<>]/g, "");
+  return escapeMarkdown(value);
 }
 function escTbl(value) {
-  return esc(value).replace(/\|/g, "\\|");
+  return escapeTable(value);
 }
 function escCode(value) {
-  return value.replace(/`/g, "'");
+  return escapeInline(value);
+}
+function linkOrText(text, url, fallback) {
+  const target = safeLinkTarget(url);
+  if (target) return `[${text}](${target})`;
+  return fallback ?? text;
 }
 
 // src/result-completeness.ts
@@ -24875,7 +24961,7 @@ var SUPABASE_URL = "https://ddufcgkwjcdseggjaiil.supabase.co";
 var SUPABASE_ANON_KEY = "sb_publishable_JCHgvBld-swO93653cDH9A_urU0alOo";
 
 // src/pipeline.ts
-var PACKAGE_VERSION = "3.2.0";
+var PACKAGE_VERSION = "3.2.2";
 var DEFAULT_TIMEOUT_MS = 9e4;
 var WARNING_PAYLOAD_BYTES = 2 * 1024 * 1024;
 var LAMBDA_MAX_BODY_BYTES = 6 * 1024 * 1024;
