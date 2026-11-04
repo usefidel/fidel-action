@@ -181,7 +181,7 @@ var require_file_command = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.prepareKeyValueMessage = exports2.issueFileCommand = void 0;
-    var crypto2 = __importStar(require("crypto"));
+    var crypto3 = __importStar(require("crypto"));
     var fs4 = __importStar(require("fs"));
     var os = __importStar(require("os"));
     var utils_1 = require_utils();
@@ -199,7 +199,7 @@ var require_file_command = __commonJS({
     }
     exports2.issueFileCommand = issueFileCommand;
     function prepareKeyValueMessage(key, value) {
-      const delimiter = `ghadelimiter_${crypto2.randomUUID()}`;
+      const delimiter = `ghadelimiter_${crypto3.randomUUID()}`;
       const convertedValue = (0, utils_1.toCommandValue)(value);
       if (key.includes(delimiter)) {
         throw new Error(`Unexpected input: name should not contain the delimiter "${delimiter}"`);
@@ -3634,11 +3634,11 @@ var require_util2 = __commonJS({
     var assert = require("assert");
     var { isUint8Array } = require("util/types");
     var supportedHashes = [];
-    var crypto2;
+    var crypto3;
     try {
-      crypto2 = require("crypto");
+      crypto3 = require("crypto");
       const possibleRelevantHashes = ["sha256", "sha384", "sha512"];
-      supportedHashes = crypto2.getHashes().filter((hash) => possibleRelevantHashes.includes(hash));
+      supportedHashes = crypto3.getHashes().filter((hash) => possibleRelevantHashes.includes(hash));
     } catch {
     }
     function responseURL(response) {
@@ -3915,7 +3915,7 @@ var require_util2 = __commonJS({
       }
     }
     function bytesMatch(bytes, metadataList) {
-      if (crypto2 === void 0) {
+      if (crypto3 === void 0) {
         return true;
       }
       const parsedMetadata = parseMetadata(metadataList);
@@ -3930,7 +3930,7 @@ var require_util2 = __commonJS({
       for (const item of metadata) {
         const algorithm = item.algo;
         const expectedValue = item.hash;
-        let actualValue = crypto2.createHash(algorithm).update(bytes).digest("base64");
+        let actualValue = crypto3.createHash(algorithm).update(bytes).digest("base64");
         if (actualValue[actualValue.length - 1] === "=") {
           if (actualValue[actualValue.length - 2] === "=") {
             actualValue = actualValue.slice(0, -2);
@@ -5276,8 +5276,8 @@ var require_body = __commonJS({
     var { parseMIMEType, serializeAMimeType } = require_dataURL();
     var random;
     try {
-      const crypto2 = require("node:crypto");
-      random = (max) => crypto2.randomInt(0, max);
+      const crypto3 = require("node:crypto");
+      random = (max) => crypto3.randomInt(0, max);
     } catch {
       random = (max) => Math.floor(Math.random(max));
     }
@@ -16327,9 +16327,9 @@ var require_connection = __commonJS({
     channels.open = diagnosticsChannel.channel("undici:websocket:open");
     channels.close = diagnosticsChannel.channel("undici:websocket:close");
     channels.socketError = diagnosticsChannel.channel("undici:websocket:socket_error");
-    var crypto2;
+    var crypto3;
     try {
-      crypto2 = require("crypto");
+      crypto3 = require("crypto");
     } catch {
     }
     function establishWebSocketConnection(url, protocols, ws, onEstablish, options) {
@@ -16348,7 +16348,7 @@ var require_connection = __commonJS({
         const headersList = new Headers(options.headers)[kHeadersList];
         request.headersList = headersList;
       }
-      const keyValue = crypto2.randomBytes(16).toString("base64");
+      const keyValue = crypto3.randomBytes(16).toString("base64");
       request.headersList.append("sec-websocket-key", keyValue);
       request.headersList.append("sec-websocket-version", "13");
       for (const protocol of protocols) {
@@ -16377,7 +16377,7 @@ var require_connection = __commonJS({
             return;
           }
           const secWSAccept = response.headersList.get("Sec-WebSocket-Accept");
-          const digest = crypto2.createHash("sha1").update(keyValue + uid).digest("base64");
+          const digest = crypto3.createHash("sha1").update(keyValue + uid).digest("base64");
           if (secWSAccept !== digest) {
             failWebsocketConnection(ws, "Incorrect hash received in Sec-WebSocket-Accept header.");
             return;
@@ -16457,9 +16457,9 @@ var require_frame = __commonJS({
   "node_modules/undici/lib/websocket/frame.js"(exports2, module2) {
     "use strict";
     var { maxUnsigned16Bit } = require_constants5();
-    var crypto2;
+    var crypto3;
     try {
-      crypto2 = require("crypto");
+      crypto3 = require("crypto");
     } catch {
     }
     var WebsocketFrameSend = class {
@@ -16468,7 +16468,7 @@ var require_frame = __commonJS({
        */
       constructor(data) {
         this.frameData = data;
-        this.maskKey = crypto2.randomBytes(4);
+        this.maskKey = crypto3.randomBytes(4);
       }
       createFrame(opcode) {
         const bodyLength = this.frameData?.byteLength ?? 0;
@@ -24143,6 +24143,398 @@ function formatLaneSection(verdict) {
   return lines.join("\n");
 }
 
+// src/result-completeness.ts
+function confirmedViolationCount(c) {
+  if (c.driftCount === null || c.offTokenCount === null) return null;
+  return c.driftCount + c.offTokenCount;
+}
+var EVIDENCE_STATES = [
+  "complete",
+  "partial",
+  "unverified",
+  "configuration_required",
+  "operational_failure"
+];
+var INCOMPLETE_REASONS = [
+  "css_variable_discovery_partial",
+  "css_variable_discovery_expected_only",
+  "declaration_provenance_unverified",
+  "unverified_token_values",
+  "storybook_story_cap",
+  "token_reference_missing",
+  "token_reference_unresolved",
+  "token_syntax_unsupported",
+  "applicability_unconfirmed",
+  "theme_anchor_unresolved",
+  "brand_unresolved",
+  "design_system_not_configured",
+  "incompatible_action_version",
+  "result_read_failed",
+  "run_not_finalized",
+  "bypass_scan_incomplete",
+  "validation_not_attempted",
+  "completeness_metadata_missing",
+  "completeness_metadata_malformed"
+];
+function asRecord(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  return v;
+}
+var RESPONSIBILITY_CLASS = {
+  // Fidel's capability limits — the page was fine, our inspection was not.
+  css_variable_discovery_partial: "fidel_capability",
+  css_variable_discovery_expected_only: "fidel_capability",
+  declaration_provenance_unverified: "fidel_capability",
+  unverified_token_values: "fidel_capability",
+  storybook_story_cap: "fidel_capability",
+  bypass_scan_incomplete: "fidel_capability",
+  // S2, the split that matters: `unresolved` is ours, `missing` is theirs. A
+  // pointer is only the customer's problem once every `var(--x)` target of the
+  // declared value is PROVEN absent from a page whose variable capture was
+  // itself complete. Anything short of that proof is `unresolved`.
+  token_reference_unresolved: "fidel_capability",
+  token_syntax_unsupported: "fidel_capability",
+  token_reference_missing: "customer_configuration",
+  // Configuration the customer owns.
+  theme_anchor_unresolved: "customer_configuration",
+  brand_unresolved: "customer_configuration",
+  design_system_not_configured: "customer_configuration",
+  incompatible_action_version: "customer_configuration",
+  // Fidel's own machinery.
+  result_read_failed: "fidel_system",
+  run_not_finalized: "fidel_system",
+  validation_not_attempted: "fidel_system",
+  completeness_metadata_missing: "fidel_system",
+  completeness_metadata_malformed: "fidel_system",
+  // Nobody's fault: we were never told this design system governs this page.
+  applicability_unconfirmed: "unverified_applicability"
+};
+function responsibilityClassFor(reason) {
+  return RESPONSIBILITY_CLASS[reason];
+}
+var APPLICABILITY_DEPENDENT = {
+  token_reference_missing: true,
+  theme_anchor_unresolved: false,
+  brand_unresolved: false,
+  design_system_not_configured: false,
+  incompatible_action_version: false
+};
+function isApplicabilityDependent(reason) {
+  return APPLICABILITY_DEPENDENT[reason] === true;
+}
+var FAIL_CLOSED_REASONS = [
+  "completeness_metadata_missing",
+  "completeness_metadata_malformed"
+];
+var NON_GATING_REASONS = INCOMPLETE_REASONS.filter((r) => {
+  const cls = RESPONSIBILITY_CLASS[r];
+  return (cls === "fidel_capability" || cls === "fidel_system" || cls === "unverified_applicability") && !FAIL_CLOSED_REASONS.includes(r);
+});
+var BRIDGE_APPLICABILITIES = [
+  "user-confirmed",
+  "detected",
+  "unknown"
+];
+function isReadinessConsistent(readiness) {
+  return Object.values(readiness.categories).every(
+    (category) => category.ready === categoryReadyFor(category, readiness.applicability)
+  );
+}
+function categoryReadyFor(category, applicability) {
+  return category.total - category.referenceInputs > 0 && category.unresolved === 0 && applicability === "user-confirmed";
+}
+function parseReadiness(raw) {
+  const rec = asRecord(raw);
+  if (rec === null) return void 0;
+  if (rec.bridge !== "legacy-v1") return void 0;
+  const rawCategories = asRecord(rec.categories);
+  if (rawCategories === null) return void 0;
+  const color = parseReadinessCategory(rawCategories.color);
+  const typography = parseReadinessCategory(rawCategories.typography);
+  const size = parseReadinessCategory(rawCategories.size);
+  if (color === void 0 || typography === void 0 || size === void 0) return void 0;
+  if (rec.tuple !== void 0 && asRecord(rec.tuple)?.theme !== "light") return void 0;
+  const applicability = BRIDGE_APPLICABILITIES.includes(rec.applicability) ? rec.applicability : "unknown";
+  const snapshot = {
+    bridge: "legacy-v1",
+    tuple: { theme: "light" },
+    applicability,
+    categories: { color, typography, size }
+  };
+  if (typeof rec.applicabilityOrigin === "string") {
+    snapshot.applicabilityOrigin = rec.applicabilityOrigin;
+  }
+  if (!isReadinessConsistent(snapshot)) return void 0;
+  return snapshot;
+}
+function parseReadinessCategory(raw) {
+  const rec = asRecord(raw);
+  if (rec === null) return void 0;
+  const total = countOrNull(rec.total);
+  const resolved = countOrNull(rec.resolved);
+  const unresolved = countOrNull(rec.unresolved);
+  const suppressedNegatives = countOrNull(rec.suppressedNegatives);
+  if (total === null || resolved === null || unresolved === null || suppressedNegatives === null) {
+    return void 0;
+  }
+  const referenceInputs = rec.referenceInputs === void 0 ? 0 : countOrNull(rec.referenceInputs);
+  if (referenceInputs === null) return void 0;
+  if (total !== resolved + unresolved + referenceInputs) return void 0;
+  if (typeof rec.ready !== "boolean") return void 0;
+  const reasons = {};
+  const rawReasons = asRecord(rec.reasons);
+  if (rawReasons !== null) {
+    for (const [key, value] of Object.entries(rawReasons)) {
+      if (!isIncompleteReason(key)) continue;
+      const count = countOrNull(value);
+      if (count === null) continue;
+      reasons[key] = count;
+    }
+  }
+  return { total, resolved, referenceInputs, unresolved, ready: rec.ready, reasons, suppressedNegatives };
+}
+var NEUTRAL_COPY = {
+  violations_enforcement_off: "Violations found. Enforcement is off. Merge allowed.",
+  not_verified: "Not verified. Merge allowed.",
+  system_failure: "Fidel could not complete verification. Merge allowed."
+};
+function conclusionFor(c, enforcement) {
+  const confirmed = confirmedViolationCount(c);
+  const designSystem = enforcement.claimScope === "design_system";
+  const readiness = designSystem ? c.readiness : void 0;
+  const colorReady = readiness?.categories.color.ready === true;
+  const offTokenContradiction = readiness !== void 0 && !colorReady && (c.offTokenCount ?? 0) > 0;
+  const claimScoped = designSystem ? c.readiness !== void 0 && c.readiness.applicability === "user-confirmed" && !offTokenContradiction : c.state === "complete";
+  const eligible = confirmed === null ? null : designSystem && !colorReady ? confirmed - (c.offTokenCount ?? 0) : confirmed;
+  const violation = claimScoped && eligible !== null && eligible > 0;
+  const anyCategoryReady = readiness !== void 0 && Object.values(readiness.categories).some((category) => category.ready);
+  const pairingUnconfirmed = designSystem && (c.reasons.includes("applicability_unconfirmed") || c.readiness !== void 0 && c.readiness.applicability !== "user-confirmed");
+  const gatingReasonsFor = (reasons) => reasons.filter((r) => {
+    if (FAIL_CLOSED_REASONS.includes(r)) return true;
+    if (responsibilityClassFor(r) !== "customer_configuration") return false;
+    return !(pairingUnconfirmed && isApplicabilityDependent(r));
+  });
+  const failClosed = c.reasons.filter((r) => FAIL_CLOSED_REASONS.includes(r));
+  if (failClosed.length > 0) {
+    const classes2 = sortedUnique([
+      ...c.reasons.map(responsibilityClassFor),
+      ...violation ? ["verified_violation"] : []
+    ]);
+    return { conclusion: "action_required", register: null, classes: classes2, gatingReasons: failClosed };
+  }
+  if (c.state === "operational_failure") {
+    return {
+      conclusion: "neutral",
+      register: "system_failure",
+      classes: ["fidel_system"],
+      gatingReasons: []
+    };
+  }
+  const classes = sortedUnique([
+    ...c.reasons.map(responsibilityClassFor),
+    ...violation ? ["verified_violation"] : []
+  ]);
+  const gatingReasons = gatingReasonsFor(c.reasons);
+  if (c.state === "configuration_required" && gatingReasons.length > 0) {
+    return { conclusion: "action_required", register: null, classes, gatingReasons };
+  }
+  if (violation && enforcement.enforced) {
+    return { conclusion: "failure", register: null, classes, gatingReasons };
+  }
+  if (gatingReasons.length > 0) {
+    return { conclusion: "action_required", register: null, classes, gatingReasons };
+  }
+  if (violation) {
+    return {
+      conclusion: "neutral",
+      register: "violations_enforcement_off",
+      classes,
+      gatingReasons
+    };
+  }
+  if (c.reasons.length > 0) {
+    const allSystem = c.reasons.every((r) => responsibilityClassFor(r) === "fidel_system");
+    return {
+      conclusion: "neutral",
+      register: allSystem ? "system_failure" : "not_verified",
+      classes,
+      gatingReasons
+    };
+  }
+  if (!claimScoped || designSystem && !anyCategoryReady) {
+    return { conclusion: "neutral", register: "not_verified", classes, gatingReasons };
+  }
+  return { conclusion: "success", register: null, classes, gatingReasons };
+}
+function sortedUnique(classes) {
+  return Array.from(new Set(classes)).sort();
+}
+function gatesCi(c, opts) {
+  const d = conclusionFor(c, {
+    enforced: opts.failOnDrift === true,
+    claimScope: opts.claimScope
+  });
+  return d.conclusion === "failure" || d.conclusion === "action_required";
+}
+var STATE_RANK = {
+  complete: 0,
+  partial: 1,
+  unverified: 2,
+  configuration_required: 3,
+  operational_failure: 4
+};
+function isEvidenceState(v) {
+  return typeof v === "string" && EVIDENCE_STATES.includes(v);
+}
+function isIncompleteReason(v) {
+  return typeof v === "string" && INCOMPLETE_REASONS.includes(v);
+}
+function worseState(a, b) {
+  return STATE_RANK[a] >= STATE_RANK[b] ? a : b;
+}
+function buildCompleteness(input) {
+  const reasons = normalizeReasons(input.reasons ?? []);
+  let state = input.state;
+  const driftCount = countOrNull(input.driftCount);
+  const offTokenCount = countOrNull(input.offTokenCount);
+  const unverifiedCount = countOrNull(input.unverifiedCount);
+  if (state === "complete" && reasons.length > 0) state = "partial";
+  if (state === "complete" && (driftCount === null || offTokenCount === null || unverifiedCount === null)) {
+    state = "unverified";
+    if (!reasons.includes("completeness_metadata_missing")) {
+      reasons.push("completeness_metadata_missing");
+    }
+  }
+  if (state !== "complete" && reasons.length === 0) reasons.push("completeness_metadata_missing");
+  const out = {
+    state,
+    reasons,
+    verified: state === "complete",
+    driftCount,
+    offTokenCount,
+    unverifiedCount,
+    retryable: input.retryable ?? defaultRetryable(state, reasons)
+  };
+  if (input.readiness !== void 0 && isReadinessConsistent(input.readiness)) {
+    out.readiness = input.readiness;
+  }
+  return out;
+}
+function ciOutcomeFor(c) {
+  if (c.state === "operational_failure") return "fail_operational";
+  if (c.state !== "complete") return "incomplete";
+  const confirmed = confirmedViolationCount(c);
+  if (confirmed === null) return "incomplete";
+  return confirmed > 0 ? "fail_violation" : "pass";
+}
+function summaryHeadline(c) {
+  switch (ciOutcomeFor(c)) {
+    case "pass":
+      return "Verification passed";
+    case "fail_violation":
+      return "Confirmed violations found";
+    case "fail_operational":
+      return "Validation failed to run";
+    case "incomplete":
+      return c.state === "configuration_required" ? "Configuration required" : "Verification incomplete";
+  }
+}
+function formatViolationCounts(c, totalFindings) {
+  const parts = [
+    c.driftCount === null ? "confirmed drift unavailable" : `${c.driftCount} confirmed drift${c.driftCount === 1 ? "" : "s"}`,
+    c.offTokenCount === null ? "off-token count unavailable" : `${c.offTokenCount} off-token violation${c.offTokenCount === 1 ? "" : "s"}`
+  ];
+  const total = countOrNull(totalFindings);
+  const confirmed = confirmedViolationCount(c);
+  if (total === null) {
+    if (totalFindings !== void 0) parts.push("total findings unavailable");
+  } else if (confirmed !== null && total < confirmed) {
+    parts.push("total findings unavailable");
+  } else {
+    parts.push(`${total} total finding${total === 1 ? "" : "s"}`);
+  }
+  return parts.join(" \xB7 ");
+}
+var COMPLETENESS_ADVISORY_CODE = "result_completeness";
+function completenessFromAdvisories(advisories) {
+  if (!Array.isArray(advisories)) {
+    return buildCompleteness({ state: "unverified", reasons: ["completeness_metadata_missing"], retryable: false });
+  }
+  const markers = advisories.filter(
+    (a) => typeof a === "object" && a !== null && !Array.isArray(a) && a.code === COMPLETENESS_ADVISORY_CODE
+  );
+  if (markers.length === 0) {
+    return buildCompleteness({ state: "unverified", reasons: ["completeness_metadata_missing"], retryable: false });
+  }
+  const reasons = [];
+  let state = "complete";
+  let sawUnknownState = false;
+  for (const m of markers) {
+    if (isEvidenceState(m.state)) state = worseState(state, m.state);
+    else sawUnknownState = true;
+    if (isIncompleteReason(m.reason)) reasons.push(m.reason);
+    else if (m.reason !== "none") sawUnknownState = true;
+  }
+  if (sawUnknownState) {
+    reasons.push("completeness_metadata_malformed");
+    state = worseState(state, "unverified");
+  }
+  const first = markers[0];
+  return buildCompleteness({
+    state,
+    reasons,
+    // `get_shared_run` projects advisories down to {code, reason}, so an
+    // anonymous viewer receives no counts at all. That must read as
+    // unavailable, never as zero.
+    driftCount: countOrNull(first.driftCount),
+    offTokenCount: countOrNull(first.offTokenCount),
+    unverifiedCount: countOrNull(first.unverifiedCount),
+    retryable: typeof first.retryable === "boolean" ? first.retryable : void 0,
+    // Same projection applies: an anonymous viewer gets {code, reason} only, so
+    // this resolves to undefined and the reader must render "not stated".
+    readiness: parseReadiness(first.readiness)
+  });
+}
+function describeReasons(reasons) {
+  return reasons.map((r) => REASON_TEXT[r]);
+}
+var REASON_TEXT = {
+  css_variable_discovery_partial: "Some stylesheets could not be read, so parts of the page were not inspected.",
+  css_variable_discovery_expected_only: "No token values were resolved from the page \u2014 only the expected token names were known.",
+  declaration_provenance_unverified: "Token values were observed, but the stylesheet that declares them could not be read.",
+  unverified_token_values: "Some token values could not be compared and reached no verdict.",
+  storybook_story_cap: "The Storybook story cap was reached, so some stories were not inspected.",
+  token_reference_missing: "A declared token references a variable the page does not define.",
+  token_reference_unresolved: "A declared token references another variable, and Fidel cannot resolve that reference yet.",
+  token_syntax_unsupported: "A declared token uses a value syntax Fidel cannot compare yet.",
+  applicability_unconfirmed: "The design system was matched to this page automatically, so nothing was confirmed as a violation.",
+  theme_anchor_unresolved: "This team has more than one connected repository and none is designated, so no design system could be selected.",
+  brand_unresolved: "More than one brand exists and none was requested, so no brand could be selected.",
+  design_system_not_configured: "No design system is connected for this repository.",
+  incompatible_action_version: "This Fidel Action is no longer compatible with the Fidel service. Upgrade to usefidel/fidel-action@v3.",
+  result_read_failed: "The validation result could not be read back.",
+  run_not_finalized: "The validation did not reach a final state.",
+  bypass_scan_incomplete: "The design-system bypass scan did not cover every changed file.",
+  validation_not_attempted: "The validation was not attempted, so nothing was verified.",
+  completeness_metadata_missing: "The result carried no completeness information, so full coverage cannot be assumed.",
+  completeness_metadata_malformed: "The result carried unreadable completeness information."
+};
+function defaultRetryable(state, reasons) {
+  if (state === "configuration_required") return false;
+  if (state === "complete") return false;
+  return reasons.some(
+    (r) => r === "result_read_failed" || r === "run_not_finalized" || r === "css_variable_discovery_partial" || r === "validation_not_attempted"
+  );
+}
+function normalizeReasons(reasons) {
+  return Array.from(new Set(reasons)).sort();
+}
+function countOrNull(v) {
+  if (typeof v !== "number") return null;
+  if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0) return null;
+  return v;
+}
+
 // src/markdown.ts
 var ZWSP = "\u200B";
 var ENTITY_CHARS = /* @__PURE__ */ new Set([
@@ -24222,7 +24614,7 @@ var FIDEL_COMMENT_MARKER = "<!-- fidel-ci -->";
 var NPM_NAME_RE = /^(@[a-z0-9-]+\/)?[a-z0-9][a-z0-9-_.]*$/;
 var COMPONENT_NAME_RE = /^[A-Z][A-Za-z0-9]*$/;
 var FILE_PATH_RE = /^[a-zA-Z0-9_\-./]+$/;
-function formatComment(results, prior, screenshotUrl, bypass, verdict) {
+function formatComment(results, prior, screenshotUrl, bypass, verdict, designSystem) {
   const successfulResults = results.filter(isSuccessfulResult);
   const failedResults = results.filter((r) => r.status === "failed");
   const lines = [
@@ -24232,9 +24624,15 @@ function formatComment(results, prior, screenshotUrl, bypass, verdict) {
   ];
   if (verdict) {
     lines.push(formatLaneSection(verdict).trimEnd(), "");
+    if (verdict.figma.ran && !verdict.tokens.ran) {
+      lines.push("_Design tokens are not checked in this run. Add `designSystemChecks` to fidel.config.json to check them._", "");
+    }
+  }
+  if (designSystem && designSystem.length > 0) {
+    appendDesignSystemSection(lines, designSystem);
   }
   if (results.length === 0) {
-    lines.push("No checks were run.");
+    if (!designSystem || designSystem.length === 0) lines.push("No checks were run.");
     appendBypassSection(lines, bypass);
     return lines.join("\n");
   }
@@ -24539,6 +24937,35 @@ function fmtVal(value) {
 function isSuccessfulResult(r) {
   return r.status === "success";
 }
+function appendDesignSystemSection(lines, results) {
+  lines.push("### Design system", "");
+  lines.push("| Check | Result | Report |");
+  lines.push("| --- | --- | --- |");
+  const notes = [];
+  for (const result of results) {
+    const c = result.completeness;
+    const confirmed = confirmedViolationCount(c);
+    let outcome;
+    if (c.verified && confirmed !== null) {
+      outcome = confirmed === 0 ? "No violations" : formatViolationCounts(c);
+    } else if (result.status !== "success" && result.reason) {
+      outcome = result.reason;
+    } else {
+      outcome = summaryHeadline(c);
+    }
+    const target = safeLinkTarget(result.reportUrl);
+    lines.push(`| ${escTbl(result.name)} | ${escTbl(outcome)} | ${target ? `[Open](${target})` : "\u2014"} |`);
+    if (!c.verified) {
+      for (const reason of describeReasons(c.reasons)) {
+        const line = `${esc(result.name)}: ${esc(reason)}`;
+        if (!notes.includes(line)) notes.push(line);
+      }
+    }
+  }
+  lines.push("");
+  for (const note of notes) lines.push(`- ${note}`);
+  if (notes.length > 0) lines.push("");
+}
 function esc(value) {
   return escapeMarkdown(value);
 }
@@ -24554,279 +24981,638 @@ function linkOrText(text, url, fallback) {
   return fallback ?? text;
 }
 
-// src/result-completeness.ts
-function confirmedViolationCount(c) {
-  if (c.driftCount === null || c.offTokenCount === null) return null;
-  return c.driftCount + c.offTokenCount;
-}
-var INCOMPLETE_REASONS = [
-  "css_variable_discovery_partial",
-  "css_variable_discovery_expected_only",
-  "declaration_provenance_unverified",
-  "unverified_token_values",
-  "storybook_story_cap",
-  "token_reference_missing",
-  "token_reference_unresolved",
-  "token_syntax_unsupported",
-  "applicability_unconfirmed",
-  "theme_anchor_unresolved",
-  "brand_unresolved",
-  "design_system_not_configured",
-  "incompatible_action_version",
-  "result_read_failed",
-  "run_not_finalized",
-  "bypass_scan_incomplete",
-  "validation_not_attempted",
-  "completeness_metadata_missing",
-  "completeness_metadata_malformed"
-];
-var RESPONSIBILITY_CLASS = {
-  // Fidel's capability limits — the page was fine, our inspection was not.
-  css_variable_discovery_partial: "fidel_capability",
-  css_variable_discovery_expected_only: "fidel_capability",
-  declaration_provenance_unverified: "fidel_capability",
-  unverified_token_values: "fidel_capability",
-  storybook_story_cap: "fidel_capability",
-  bypass_scan_incomplete: "fidel_capability",
-  // S2, the split that matters: `unresolved` is ours, `missing` is theirs. A
-  // pointer is only the customer's problem once every `var(--x)` target of the
-  // declared value is PROVEN absent from a page whose variable capture was
-  // itself complete. Anything short of that proof is `unresolved`.
-  token_reference_unresolved: "fidel_capability",
-  token_syntax_unsupported: "fidel_capability",
-  token_reference_missing: "customer_configuration",
-  // Configuration the customer owns.
-  theme_anchor_unresolved: "customer_configuration",
-  brand_unresolved: "customer_configuration",
-  design_system_not_configured: "customer_configuration",
-  incompatible_action_version: "customer_configuration",
-  // Fidel's own machinery.
-  result_read_failed: "fidel_system",
-  run_not_finalized: "fidel_system",
-  validation_not_attempted: "fidel_system",
-  completeness_metadata_missing: "fidel_system",
-  completeness_metadata_malformed: "fidel_system",
-  // Nobody's fault: we were never told this design system governs this page.
-  applicability_unconfirmed: "unverified_applicability"
-};
-function responsibilityClassFor(reason) {
-  return RESPONSIBILITY_CLASS[reason];
-}
-var APPLICABILITY_DEPENDENT = {
-  token_reference_missing: true,
-  theme_anchor_unresolved: false,
-  brand_unresolved: false,
-  design_system_not_configured: false,
-  incompatible_action_version: false
-};
-function isApplicabilityDependent(reason) {
-  return APPLICABILITY_DEPENDENT[reason] === true;
-}
-var FAIL_CLOSED_REASONS = [
-  "completeness_metadata_missing",
-  "completeness_metadata_malformed"
-];
-var NON_GATING_REASONS = INCOMPLETE_REASONS.filter((r) => {
-  const cls = RESPONSIBILITY_CLASS[r];
-  return (cls === "fidel_capability" || cls === "fidel_system" || cls === "unverified_applicability") && !FAIL_CLOSED_REASONS.includes(r);
-});
-function isReadinessConsistent(readiness) {
-  return Object.values(readiness.categories).every(
-    (category) => category.ready === categoryReadyFor(category, readiness.applicability)
-  );
-}
-function categoryReadyFor(category, applicability) {
-  return category.total - category.referenceInputs > 0 && category.unresolved === 0 && applicability === "user-confirmed";
-}
-var NEUTRAL_COPY = {
-  violations_enforcement_off: "Violations found. Enforcement is off. Merge allowed.",
-  not_verified: "Not verified. Merge allowed.",
-  system_failure: "Fidel could not complete verification. Merge allowed."
-};
-function conclusionFor(c, enforcement) {
-  const confirmed = confirmedViolationCount(c);
-  const designSystem = enforcement.claimScope === "design_system";
-  const readiness = designSystem ? c.readiness : void 0;
-  const colorReady = readiness?.categories.color.ready === true;
-  const offTokenContradiction = readiness !== void 0 && !colorReady && (c.offTokenCount ?? 0) > 0;
-  const claimScoped = designSystem ? c.readiness !== void 0 && c.readiness.applicability === "user-confirmed" && !offTokenContradiction : c.state === "complete";
-  const eligible = confirmed === null ? null : designSystem && !colorReady ? confirmed - (c.offTokenCount ?? 0) : confirmed;
-  const violation = claimScoped && eligible !== null && eligible > 0;
-  const anyCategoryReady = readiness !== void 0 && Object.values(readiness.categories).some((category) => category.ready);
-  const pairingUnconfirmed = designSystem && (c.reasons.includes("applicability_unconfirmed") || c.readiness !== void 0 && c.readiness.applicability !== "user-confirmed");
-  const gatingReasonsFor = (reasons) => reasons.filter((r) => {
-    if (FAIL_CLOSED_REASONS.includes(r)) return true;
-    if (responsibilityClassFor(r) !== "customer_configuration") return false;
-    return !(pairingUnconfirmed && isApplicabilityDependent(r));
-  });
-  const failClosed = c.reasons.filter((r) => FAIL_CLOSED_REASONS.includes(r));
-  if (failClosed.length > 0) {
-    const classes2 = sortedUnique([
-      ...c.reasons.map(responsibilityClassFor),
-      ...violation ? ["verified_violation"] : []
-    ]);
-    return { conclusion: "action_required", register: null, classes: classes2, gatingReasons: failClosed };
-  }
-  if (c.state === "operational_failure") {
-    return {
-      conclusion: "neutral",
-      register: "system_failure",
-      classes: ["fidel_system"],
-      gatingReasons: []
-    };
-  }
-  const classes = sortedUnique([
-    ...c.reasons.map(responsibilityClassFor),
-    ...violation ? ["verified_violation"] : []
-  ]);
-  const gatingReasons = gatingReasonsFor(c.reasons);
-  if (c.state === "configuration_required" && gatingReasons.length > 0) {
-    return { conclusion: "action_required", register: null, classes, gatingReasons };
-  }
-  if (violation && enforcement.enforced) {
-    return { conclusion: "failure", register: null, classes, gatingReasons };
-  }
-  if (gatingReasons.length > 0) {
-    return { conclusion: "action_required", register: null, classes, gatingReasons };
-  }
-  if (violation) {
-    return {
-      conclusion: "neutral",
-      register: "violations_enforcement_off",
-      classes,
-      gatingReasons
-    };
-  }
-  if (c.reasons.length > 0) {
-    const allSystem = c.reasons.every((r) => responsibilityClassFor(r) === "fidel_system");
-    return {
-      conclusion: "neutral",
-      register: allSystem ? "system_failure" : "not_verified",
-      classes,
-      gatingReasons
-    };
-  }
-  if (!claimScoped || designSystem && !anyCategoryReady) {
-    return { conclusion: "neutral", register: "not_verified", classes, gatingReasons };
-  }
-  return { conclusion: "success", register: null, classes, gatingReasons };
-}
-function sortedUnique(classes) {
-  return Array.from(new Set(classes)).sort();
-}
-function gatesCi(c, opts) {
-  const d = conclusionFor(c, {
-    enforced: opts.failOnDrift === true,
-    claimScope: opts.claimScope
-  });
-  return d.conclusion === "failure" || d.conclusion === "action_required";
-}
-function buildCompleteness(input) {
-  const reasons = normalizeReasons(input.reasons ?? []);
-  let state = input.state;
-  const driftCount = countOrNull(input.driftCount);
-  const offTokenCount = countOrNull(input.offTokenCount);
-  const unverifiedCount = countOrNull(input.unverifiedCount);
-  if (state === "complete" && reasons.length > 0) state = "partial";
-  if (state === "complete" && (driftCount === null || offTokenCount === null || unverifiedCount === null)) {
-    state = "unverified";
-    if (!reasons.includes("completeness_metadata_missing")) {
-      reasons.push("completeness_metadata_missing");
-    }
-  }
-  if (state !== "complete" && reasons.length === 0) reasons.push("completeness_metadata_missing");
-  const out = {
-    state,
-    reasons,
-    verified: state === "complete",
-    driftCount,
-    offTokenCount,
-    unverifiedCount,
-    retryable: input.retryable ?? defaultRetryable(state, reasons)
-  };
-  if (input.readiness !== void 0 && isReadinessConsistent(input.readiness)) {
-    out.readiness = input.readiness;
-  }
-  return out;
-}
-function ciOutcomeFor(c) {
-  if (c.state === "operational_failure") return "fail_operational";
-  if (c.state !== "complete") return "incomplete";
-  const confirmed = confirmedViolationCount(c);
-  if (confirmed === null) return "incomplete";
-  return confirmed > 0 ? "fail_violation" : "pass";
-}
-function summaryHeadline(c) {
-  switch (ciOutcomeFor(c)) {
-    case "pass":
-      return "Verification passed";
-    case "fail_violation":
-      return "Confirmed violations found";
-    case "fail_operational":
-      return "Validation failed to run";
-    case "incomplete":
-      return c.state === "configuration_required" ? "Configuration required" : "Verification incomplete";
-  }
-}
-function formatViolationCounts(c, totalFindings) {
-  const parts = [
-    c.driftCount === null ? "confirmed drift unavailable" : `${c.driftCount} confirmed drift${c.driftCount === 1 ? "" : "s"}`,
-    c.offTokenCount === null ? "off-token count unavailable" : `${c.offTokenCount} off-token violation${c.offTokenCount === 1 ? "" : "s"}`
-  ];
-  const total = countOrNull(totalFindings);
-  const confirmed = confirmedViolationCount(c);
-  if (total === null) {
-    if (totalFindings !== void 0) parts.push("total findings unavailable");
-  } else if (confirmed !== null && total < confirmed) {
-    parts.push("total findings unavailable");
-  } else {
-    parts.push(`${total} total finding${total === 1 ? "" : "s"}`);
-  }
-  return parts.join(" \xB7 ");
-}
-function describeReasons(reasons) {
-  return reasons.map((r) => REASON_TEXT[r]);
-}
-var REASON_TEXT = {
-  css_variable_discovery_partial: "Some stylesheets could not be read, so parts of the page were not inspected.",
-  css_variable_discovery_expected_only: "No token values were resolved from the page \u2014 only the expected token names were known.",
-  declaration_provenance_unverified: "Token values were observed, but the stylesheet that declares them could not be read.",
-  unverified_token_values: "Some token values could not be compared and reached no verdict.",
-  storybook_story_cap: "The Storybook story cap was reached, so some stories were not inspected.",
-  token_reference_missing: "A declared token references a variable the page does not define.",
-  token_reference_unresolved: "A declared token references another variable, and Fidel cannot resolve that reference yet.",
-  token_syntax_unsupported: "A declared token uses a value syntax Fidel cannot compare yet.",
-  applicability_unconfirmed: "The design system was matched to this page automatically, so nothing was confirmed as a violation.",
-  theme_anchor_unresolved: "This team has more than one connected repository and none is designated, so no design system could be selected.",
-  brand_unresolved: "More than one brand exists and none was requested, so no brand could be selected.",
-  design_system_not_configured: "No design system is connected for this repository.",
-  incompatible_action_version: "This Fidel Action is no longer compatible with the Fidel service. Upgrade to usefidel/fidel-action@v3.",
-  result_read_failed: "The validation result could not be read back.",
-  run_not_finalized: "The validation did not reach a final state.",
-  bypass_scan_incomplete: "The design-system bypass scan did not cover every changed file.",
-  validation_not_attempted: "The validation was not attempted, so nothing was verified.",
-  completeness_metadata_missing: "The result carried no completeness information, so full coverage cannot be assumed.",
-  completeness_metadata_malformed: "The result carried unreadable completeness information."
-};
-function defaultRetryable(state, reasons) {
-  if (state === "configuration_required") return false;
-  if (state === "complete") return false;
-  return reasons.some(
-    (r) => r === "result_read_failed" || r === "run_not_finalized" || r === "css_variable_discovery_partial" || r === "validation_not_attempted"
-  );
-}
-function normalizeReasons(reasons) {
-  return Array.from(new Set(reasons)).sort();
-}
-function countOrNull(v) {
-  if (typeof v !== "number") return null;
-  if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0) return null;
-  return v;
-}
-
 // src/action-gate.ts
 function actionGates(c, failOnDrift) {
   return gatesCi(c, { failOnDrift, claimScope: "no_token_claims" }) || c.state === "operational_failure";
+}
+
+// src/config.ts
+var import_fs2 = __toESM(require("fs"));
+var import_path2 = __toESM(require("path"));
+var DEFAULT_VIEWPORT = { width: 1440, height: 900 };
+var DEFAULT_WAIT_AFTER_LOAD_MS = 500;
+var DEFAULT_WAIT_FOR_LOAD_STATE = "networkidle";
+var DEFAULT_TEXT_MODE = "styling-only";
+var VALID_WAIT_STATES = /* @__PURE__ */ new Set(["load", "domcontentloaded", "networkidle"]);
+var FRAME_VIEWPORT_MISMATCH_RATIO = 0.02;
+function isFrameViewportMismatch(frameWidth, viewportWidth) {
+  if (!(viewportWidth > 0) || !Number.isFinite(frameWidth) || !Number.isFinite(viewportWidth)) {
+    return false;
+  }
+  return Math.abs(frameWidth - viewportWidth) / viewportWidth > FRAME_VIEWPORT_MISMATCH_RATIO;
+}
+function warnFrameViewportMismatch(frameWidth, viewportWidth) {
+  if (!isFrameViewportMismatch(frameWidth, viewportWidth)) return false;
+  console.log(`[fidel-ci] frame_viewport_mismatch frame=${frameWidth} viewport=${viewportWidth}`);
+  return true;
+}
+function loadConfig(configPath) {
+  const resolvedPath = import_path2.default.resolve(configPath);
+  if (!import_fs2.default.existsSync(resolvedPath)) {
+    throw new Error(
+      `Config file not found: ${resolvedPath}
+
+Create one with:
+  npx usefidel init
+
+Or see: https://github.com/usefidel/fidel-action#configuration`
+    );
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(import_fs2.default.readFileSync(resolvedPath, "utf8"));
+  } catch (error) {
+    throw new Error(`Failed to parse ${resolvedPath}: ${error.message}`);
+  }
+  if (!isRecord(parsed)) {
+    throw new Error("fidel.config.json must be a JSON object");
+  }
+  const { checks, defaults, triggers, designSystemChecks } = parsed;
+  if (checks !== void 0 && !Array.isArray(checks)) {
+    throw new Error('fidel.config.json "checks" must be an array');
+  }
+  const hasFigmaChecks = Array.isArray(checks) && checks.length > 0;
+  const hasDesignSystemChecks = Array.isArray(designSystemChecks) && designSystemChecks.length > 0;
+  if (!hasFigmaChecks && !hasDesignSystemChecks) {
+    throw new Error(
+      'fidel.config.json has no checks.\n\nIt needs a non-empty "checks" array (Figma frames), a non-empty "designSystemChecks" array (design tokens), or both.\n\nSet it up with:\n  npx usefidel init'
+    );
+  }
+  const validatedChecks = hasFigmaChecks ? checks.map((value, index) => validateCheck(value, `checks[${index}]`)) : [];
+  const validatedDefaults = defaults === void 0 ? void 0 : validateDefaults(defaults, "defaults");
+  const validatedTriggers = triggers === void 0 ? void 0 : validateTriggers(triggers, "triggers");
+  return {
+    checks: validatedChecks,
+    defaults: validatedDefaults,
+    triggers: validatedTriggers,
+    designSystemChecks: parseDesignSystemChecks(designSystemChecks)
+  };
+}
+var MAX_DESIGN_SYSTEM_CHECKS = 10;
+function parseDesignSystemChecks(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const entry of raw) {
+    if (out.length >= MAX_DESIGN_SYSTEM_CHECKS) break;
+    if (!isRecord(entry)) continue;
+    const name = typeof entry.name === "string" ? entry.name.trim() : "";
+    const url = typeof entry.url === "string" ? entry.url.trim() : "";
+    if (!name || !url) continue;
+    const brandKey = typeof entry.brandKey === "string" && entry.brandKey.trim() ? entry.brandKey.trim() : void 0;
+    out.push({ name, url, ...brandKey ? { brandKey } : {} });
+  }
+  return out;
+}
+function substituteVars(input, vars) {
+  return input.replace(/\{pr\}/g, vars.pr ?? "").replace(/\{sha\}/g, vars.sha ?? "").replace(/\{branch\}/g, vars.branch ?? "").replace(/\$\{([A-Z_][A-Z0-9_]*)\}/g, (_, name) => process.env[name] ?? "").replace(/\$([A-Z_][A-Z0-9_]*)/g, (_, name) => process.env[name] ?? "");
+}
+function resolveCheck(check, defaults, vars) {
+  const viewport = check.viewport ?? defaults?.viewport ?? DEFAULT_VIEWPORT;
+  const waitAfterLoadMs = check.waitAfterLoadMs ?? defaults?.waitAfterLoadMs ?? DEFAULT_WAIT_AFTER_LOAD_MS;
+  const waitForLoadState = check.waitForLoadState ?? defaults?.waitForLoadState ?? DEFAULT_WAIT_FOR_LOAD_STATE;
+  const textMode = check.textMode ?? defaults?.textMode ?? DEFAULT_TEXT_MODE;
+  return {
+    name: check.name.trim(),
+    figma: substituteVars(check.figma, vars),
+    url: substituteVars(check.url, vars),
+    viewport,
+    waitForSelector: check.waitForSelector?.trim() || void 0,
+    waitAfterLoadMs,
+    waitForLoadState,
+    textMode
+  };
+}
+function validateCheck(value, location) {
+  if (!isRecord(value)) {
+    throw new Error(`${location} must be an object`);
+  }
+  const name = requireString(value.name, `${location}.name`);
+  const figma = requireString(value.figma, `${location}.figma`);
+  const url = requireString(value.url, `${location}.url`);
+  return {
+    name,
+    figma,
+    url,
+    viewport: value.viewport === void 0 ? void 0 : validateViewport(value.viewport, `${location}.viewport`),
+    waitForSelector: optionalString(value.waitForSelector, `${location}.waitForSelector`),
+    waitAfterLoadMs: optionalNonNegativeInteger(value.waitAfterLoadMs, `${location}.waitAfterLoadMs`),
+    waitForLoadState: optionalWaitForLoadState(value.waitForLoadState, `${location}.waitForLoadState`),
+    textMode: optionalString(value.textMode, `${location}.textMode`),
+    // Preserve steps as-is (unknown[]) so the runtime guard in main.ts can
+    // detect its presence. No validation of the shape — v2 owns that.
+    steps: value.steps !== void 0 ? value.steps : void 0
+  };
+}
+function validateDefaults(value, location) {
+  if (!isRecord(value)) {
+    throw new Error(`${location} must be an object`);
+  }
+  return {
+    viewport: value.viewport === void 0 ? void 0 : validateViewport(value.viewport, `${location}.viewport`),
+    waitAfterLoadMs: optionalNonNegativeInteger(value.waitAfterLoadMs, `${location}.waitAfterLoadMs`),
+    waitForLoadState: optionalWaitForLoadState(value.waitForLoadState, `${location}.waitForLoadState`),
+    textMode: optionalString(value.textMode, `${location}.textMode`)
+  };
+}
+function validateTriggers(value, location) {
+  if (!isRecord(value)) {
+    console.warn(`[fidel-ci] ${location} is not an object; ignoring`);
+    return void 0;
+  }
+  const { paths } = value;
+  if (paths === void 0) {
+    return {};
+  }
+  if (!Array.isArray(paths)) {
+    throw new Error(`${location}.paths must be an array of glob strings`);
+  }
+  if (paths.length > 64) {
+    throw new Error(`${location}.paths supports at most 64 entries`);
+  }
+  const validated = [];
+  for (let i = 0; i < paths.length; i += 1) {
+    const entry = paths[i];
+    if (typeof entry !== "string" || entry.trim() === "") {
+      throw new Error(`${location}.paths[${i}] must be a non-empty string`);
+    }
+    validated.push(entry);
+  }
+  return { paths: validated };
+}
+var MIN_VIEWPORT_PX = 320;
+var MAX_VIEWPORT_PX = 2560;
+function requireViewportAxis(value, location) {
+  const n = requirePositiveInteger(value, location);
+  if (n < MIN_VIEWPORT_PX || n > MAX_VIEWPORT_PX) {
+    throw new Error(
+      `${location} must be between ${MIN_VIEWPORT_PX} and ${MAX_VIEWPORT_PX} (got ${n})`
+    );
+  }
+  return n;
+}
+function validateViewport(value, location) {
+  if (!isRecord(value)) {
+    throw new Error(`${location} must be an object`);
+  }
+  return {
+    width: requireViewportAxis(value.width, `${location}.width`),
+    height: requireViewportAxis(value.height, `${location}.height`)
+  };
+}
+function optionalWaitForLoadState(value, location) {
+  if (value === void 0) {
+    return void 0;
+  }
+  if (typeof value !== "string" || !VALID_WAIT_STATES.has(value)) {
+    throw new Error(`${location} must be one of: load, domcontentloaded, networkidle`);
+  }
+  return value;
+}
+function optionalNonNegativeInteger(value, location) {
+  if (value === void 0) {
+    return void 0;
+  }
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${location} must be a non-negative integer`);
+  }
+  return value;
+}
+function requirePositiveInteger(value, location) {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${location} must be a positive integer`);
+  }
+  return value;
+}
+function requireString(value, location) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${location} must be a non-empty string`);
+  }
+  return value.trim();
+}
+function optionalString(value, location) {
+  if (value === void 0) {
+    return void 0;
+  }
+  return requireString(value, location);
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// src/ds-check.ts
+var DEFAULT_APP_BASE_URL = "https://app.usefidel.com";
+var DEFAULT_POLL_TIMEOUT_MS = 9e4;
+var DEFAULT_POLL_INTERVAL_MS = 3e3;
+var FETCH_TIMEOUT_MS = 3e4;
+async function runDesignSystemChecks(opts) {
+  const results = [];
+  for (const check of opts.checks) {
+    results.push(await runOneDesignSystemCheck(check, opts));
+  }
+  return results;
+}
+async function runOneDesignSystemCheck(check, opts) {
+  const startedAt = Date.now();
+  const url = substituteVars(check.url, opts.templateVariables);
+  try {
+    const contextKey = check.brandKey ?? "__default__";
+    const idempotencyKey = await deriveIdempotencyKey(opts.repoFullName, opts.headSha, contextKey, url);
+    const postBody = {
+      validationMode: "design_system_vs_live",
+      liveUrl: url,
+      repoFullName: opts.repoFullName,
+      idempotencyKey,
+      // Plan 026 §8 — structural, analytics-only source hint (see
+      // web-validate/index.ts's requestSource comment). Never authz.
+      runnerRequest: true
+    };
+    if (check.brandKey) {
+      postBody.brandKey = check.brandKey;
+    }
+    if (opts.viewport) {
+      postBody.viewport = opts.viewport;
+    }
+    let postResp = await fetchWithTimeout(opts.webValidateUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.supabaseJwt}`,
+        apikey: opts.supabaseAnonKey
+      },
+      body: JSON.stringify(postBody)
+    });
+    let postJson = await safeJson(postResp);
+    if (postResp.status === 409 && postJson?.reason === "request_id_reused") {
+      const retrySalt = crypto.randomUUID().slice(0, 8);
+      const retryBody = { ...postBody, idempotencyKey: `${idempotencyKey}-${retrySalt}`.slice(0, 128) };
+      postResp = await fetchWithTimeout(opts.webValidateUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${opts.supabaseJwt}`,
+          apikey: opts.supabaseAnonKey
+        },
+        body: JSON.stringify(retryBody)
+      });
+      postJson = await safeJson(postResp);
+    }
+    if (postResp.status === 402) {
+      return notAttempted(check, url, startedAt, describeSubscriptionDenial(postJson));
+    }
+    if (postResp.status === 429) {
+      return notAttempted(check, url, startedAt, "Daily validation limit reached \u2014 skipped.");
+    }
+    if (postResp.status === 422) {
+      const errorCode = typeof postJson?.errorCode === "string" ? postJson.errorCode : void 0;
+      if (errorCode === "SESSION_EXPIRED") {
+        const reconnectUrl = typeof postJson?.reconnectUrl === "string" && postJson.reconnectUrl.startsWith("https://") ? postJson.reconnectUrl : void 0;
+        return notAttempted(
+          check,
+          url,
+          startedAt,
+          reconnectUrl ? `Connected environment session expired \u2014 reconnect it here: ${reconnectUrl}` : "Connected environment session expired \u2014 reconnect in Fidel settings."
+        );
+      }
+      if (errorCode === "DESIGN_SYSTEM_BRAND_NOT_RESOLVED") {
+        const count = typeof postJson?.candidateCount === "number" ? postJson.candidateCount : void 0;
+        const suffix = count !== void 0 ? ` (${count} brands connected)` : "";
+        return configurationRequired(
+          check,
+          url,
+          startedAt,
+          "brand_unresolved",
+          postJson?.reason === "requested_brand_absent" ? `The requested brand has no connected design system${suffix}. Designate the intended brand context in Fidel settings.` : `More than one brand is connected and none was requested${suffix}. Designate the intended brand context in Fidel settings.`
+        );
+      }
+      if (errorCode === "DESIGN_SYSTEM_CONTEXT_NOT_AVAILABLE") {
+        return configurationRequired(
+          check,
+          url,
+          startedAt,
+          "brand_unresolved",
+          check.brandKey ? `Unknown or archived brand context "${check.brandKey}" for this repo. Designate the intended brand context in Fidel settings.` : "No active design-system context for this repo. Designate one in Fidel settings."
+        );
+      }
+      if (errorCode === "DESIGN_SYSTEM_NOT_AVAILABLE") {
+        return configurationRequired(
+          check,
+          url,
+          startedAt,
+          "design_system_not_configured",
+          "No parsed design-system theme is connected for this repo. Connect one in Fidel settings."
+        );
+      }
+      return configurationRequired(
+        check,
+        url,
+        startedAt,
+        "design_system_not_configured",
+        "The design system for this repo could not be resolved. Check the connection in Fidel settings."
+      );
+    }
+    if (postResp.status === 401) {
+      return notAttempted(check, url, startedAt, "Not authenticated with Fidel \u2014 skipped.");
+    }
+    if (postResp.status === 400) {
+      const message = typeof postJson?.error === "string" ? postJson.error : "Invalid request";
+      return operationalFailure(check, url, startedAt, message);
+    }
+    if (!postResp.ok || !postJson?.runId) {
+      return operationalFailure(check, url, startedAt, `web-validate returned HTTP ${postResp.status}`);
+    }
+    const runId = postJson.runId;
+    if (postJson.status === "complete") {
+      return await buildCompletedResult(check, url, runId, startedAt, opts);
+    }
+    const pollResult = await pollForCompletion(runId, opts);
+    if (pollResult === "timeout") {
+      return {
+        name: check.name,
+        brandKey: check.brandKey,
+        url,
+        status: "neutral",
+        runId,
+        reason: "Still processing when the check timed out \u2014 nothing was verified. Re-run to get a result.",
+        ...completed(buildCompleteness({
+          state: "unverified",
+          reasons: ["run_not_finalized"],
+          retryable: true
+        })),
+        elapsedMs: Date.now() - startedAt
+      };
+    }
+    if (pollResult === "error") {
+      return operationalFailure(check, url, startedAt, "Validation failed while processing.", runId);
+    }
+    return await buildCompletedResult(check, url, runId, startedAt, opts);
+  } catch (err) {
+    return operationalFailure(check, url, startedAt, err.message || String(err));
+  }
+}
+async function buildCompletedResult(check, url, runId, startedAt, opts) {
+  const read = await fetchRunRow(runId, opts);
+  if (!read.ok) {
+    return {
+      name: check.name,
+      brandKey: check.brandKey,
+      url,
+      status: "neutral",
+      runId,
+      reason: "The validation ran but its result could not be read back \u2014 nothing was verified.",
+      ...completed(buildCompleteness({
+        state: "unverified",
+        reasons: ["result_read_failed"],
+        retryable: true
+      })),
+      elapsedMs: Date.now() - startedAt
+    };
+  }
+  const runRow = read.row;
+  if (runRow.status === "error") {
+    return operationalFailure(check, url, startedAt, "The validation did not complete.", runId);
+  }
+  if (runRow.status !== "complete") {
+    return {
+      name: check.name,
+      brandKey: check.brandKey,
+      url,
+      status: "neutral",
+      runId,
+      reason: `The validation is still "${runRow.status}" \u2014 nothing was verified.`,
+      ...completed(buildCompleteness({
+        state: "unverified",
+        reasons: ["run_not_finalized"],
+        retryable: true
+      })),
+      elapsedMs: Date.now() - startedAt
+    };
+  }
+  let completeness = completenessFromAdvisories(runRow.advisories);
+  if (completeness.verified && typeof runRow.issue_count !== "number") {
+    completeness = buildCompleteness({
+      state: "unverified",
+      reasons: ["result_read_failed"],
+      driftCount: completeness.driftCount,
+      unverifiedCount: completeness.unverifiedCount,
+      retryable: true
+    });
+  }
+  const tokenDriftCount = runRow.issue_count ?? 0;
+  let tracked;
+  let seen;
+  let unresolved;
+  const contextId = runRow.design_system_context_id;
+  if (contextId) {
+    const rollup = await fetchContextRollupCounts(contextId, opts);
+    if (rollup) {
+      tracked = rollup.tracked;
+      seen = rollup.seen;
+      unresolved = rollup.unresolved;
+    }
+  }
+  const token = await mintShareToken(runId, opts);
+  const appBase = (opts.appBaseUrl || DEFAULT_APP_BASE_URL).replace(/\/+$/, "");
+  const reportUrl = token ? `${appBase}/report/${runId}?t=${token}` : `${appBase}/report/${runId}`;
+  return {
+    name: check.name,
+    brandKey: check.brandKey,
+    url,
+    status: "success",
+    runId,
+    reportUrl,
+    tokenDriftCount,
+    tracked,
+    seen,
+    unresolved,
+    ...completed(completeness),
+    elapsedMs: Date.now() - startedAt
+  };
+}
+function completed(completeness) {
+  return { completeness, ciOutcome: ciOutcomeFor(completeness) };
+}
+function notAttempted(check, url, startedAt, reason, runId) {
+  return {
+    name: check.name,
+    brandKey: check.brandKey,
+    url,
+    status: "neutral",
+    reason,
+    runId,
+    ...completed(buildCompleteness({
+      state: "unverified",
+      reasons: ["validation_not_attempted"],
+      retryable: true
+    })),
+    elapsedMs: Date.now() - startedAt
+  };
+}
+function configurationRequired(check, url, startedAt, reason, message) {
+  return {
+    name: check.name,
+    brandKey: check.brandKey,
+    url,
+    status: "neutral",
+    reason: message,
+    ...completed(buildCompleteness({
+      state: "configuration_required",
+      reasons: [reason],
+      retryable: false
+    })),
+    elapsedMs: Date.now() - startedAt
+  };
+}
+function operationalFailure(check, url, startedAt, reason, runId) {
+  return {
+    name: check.name,
+    brandKey: check.brandKey,
+    url,
+    status: "failed",
+    runId,
+    reason,
+    ...completed(buildCompleteness({
+      state: "operational_failure",
+      reasons: ["run_not_finalized"],
+      retryable: true
+    })),
+    elapsedMs: Date.now() - startedAt
+  };
+}
+function describeSubscriptionDenial(json) {
+  const reason = typeof json?.reason === "string" ? json.reason : void 0;
+  if (reason === "requires_pro_plan") return "Design-system validation requires a Pro plan \u2014 skipped.";
+  if (reason === "ds_validation_limit") return "Monthly design-system validation limit reached for this plan \u2014 skipped.";
+  if (reason === "validation_limit") return "Monthly validation limit reached \u2014 skipped.";
+  if (reason === "no_subscription") return "No active subscription \u2014 skipped.";
+  if (reason === "beta_expired") return "Beta access expired \u2014 skipped.";
+  return "Validation limit reached \u2014 skipped.";
+}
+async function pollForCompletion(runId, opts) {
+  const timeoutMs = opts.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
+  const intervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const read = await fetchRunRow(runId, opts);
+    if (read.ok && read.row.status === "complete") return "complete";
+    if (read.ok && read.row.status === "error") return "error";
+    await sleep(intervalMs);
+  }
+  return "timeout";
+}
+async function fetchRunRow(runId, opts) {
+  try {
+    const resp = await fetchWithTimeout(
+      `${opts.supabaseUrl}/rest/v1/validation_runs?id=eq.${encodeURIComponent(runId)}&select=status,issue_count,design_system_context_id,advisories`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${opts.supabaseJwt}`,
+          apikey: opts.supabaseAnonKey
+        }
+      }
+    );
+    if (!resp.ok) return { ok: false, reason: "http_error" };
+    const rows = await resp.json();
+    const row = rows[0];
+    return row ? { ok: true, row } : { ok: false, reason: "absent" };
+  } catch {
+    return { ok: false, reason: "threw" };
+  }
+}
+async function fetchContextRollupCounts(contextId, opts) {
+  try {
+    const [rollupResp, unresolvedResp] = await Promise.all([
+      fetchWithTimeout(`${opts.supabaseUrl}/rest/v1/rpc/get_context_component_rollup`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${opts.supabaseJwt}`,
+          apikey: opts.supabaseAnonKey
+        },
+        body: JSON.stringify({ p_context_id: contextId })
+      }),
+      fetchWithTimeout(`${opts.supabaseUrl}/rest/v1/rpc/get_context_unresolved_summary`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${opts.supabaseJwt}`,
+          apikey: opts.supabaseAnonKey
+        },
+        body: JSON.stringify({ p_context_id: contextId })
+      })
+    ]);
+    if (!rollupResp.ok || !unresolvedResp.ok) return null;
+    const rollupRows = await rollupResp.json();
+    const unresolvedRows = await unresolvedResp.json();
+    const tracked = rollupRows.length;
+    const seen = rollupRows.filter((r) => r.occurrence_count > 0).length;
+    const unresolved = unresolvedRows[0]?.unresolved_pending_count ?? 0;
+    return { tracked, seen, unresolved };
+  } catch {
+    return null;
+  }
+}
+async function mintShareToken(runId, opts) {
+  try {
+    const resp = await fetchWithTimeout(`${opts.supabaseUrl}/rest/v1/rpc/mint_validation_run_share_token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.supabaseJwt}`,
+        apikey: opts.supabaseAnonKey
+      },
+      body: JSON.stringify({ p_run_id: runId })
+    });
+    if (!resp.ok) return null;
+    const token = await resp.json();
+    return typeof token === "string" ? token : null;
+  } catch {
+    return null;
+  }
+}
+async function safeJson(resp) {
+  try {
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function fetchWithTimeout(url, init) {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+}
+async function deriveIdempotencyKey(repoFullName, headSha, contextKey, url) {
+  const material = `ds:${repoFullName}:${headSha}:${contextKey}:${url}`;
+  const encoded = new TextEncoder().encode(material);
+  const digest = await crypto.subtle.digest("SHA-256", encoded);
+  const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  return `ds-${hex}`.slice(0, 128);
+}
+function aggregateDsOutcome(results) {
+  if (results.length === 0) {
+    return buildCompleteness({ state: "unverified", reasons: ["validation_not_attempted"], retryable: false });
+  }
+  let state = "complete";
+  const reasons = [];
+  let driftCount = 0;
+  let offTokenCount = 0;
+  let unverifiedCount = 0;
+  let retryable = false;
+  for (const r of results) {
+    state = worseState(state, r.completeness.state);
+    reasons.push(...r.completeness.reasons);
+    driftCount = addCounts(driftCount, r.completeness.driftCount);
+    offTokenCount = addCounts(offTokenCount, r.completeness.offTokenCount);
+    unverifiedCount = addCounts(unverifiedCount, r.completeness.unverifiedCount);
+    retryable = retryable || r.completeness.retryable;
+  }
+  return buildCompleteness({ state, reasons, driftCount, offTokenCount, unverifiedCount, retryable });
+}
+function addCounts(a, b) {
+  if (a === null || b === null) return null;
+  return a + b;
 }
 
 // node_modules/@usefidel/contracts/dist/pipeline-wire-version.js
@@ -25242,6 +26028,9 @@ function reportActionRun(input) {
     });
     return finish(policy2, unrunVerdict(policy2), false, null, null, 1);
   }
+  if (input.designSystem && input.designSystem.length > 0) {
+    return reportWithTokens(input, input.designSystem);
+  }
   const checks = input.checks ?? [];
   const successes = checks.filter((check) => check.status === "success");
   const failures = checks.filter((check) => check.status === "failed");
@@ -25297,6 +26086,82 @@ function finish(policy, verdict, enforced, score, issuesCount, exitOverride) {
     }
   };
 }
+function reportWithTokens(input, dsResults) {
+  const enforced = input.enforced === true;
+  const figmaRan = input.figmaRan !== false;
+  const agg = aggregateDsOutcome(dsResults);
+  let tokensBlock = false;
+  for (const result of dsResults) {
+    const decision = conclusionFor(result.completeness, { enforced, claimScope: "design_system" });
+    if (decision.conclusion === "failure" || decision.conclusion === "action_required") tokensBlock = true;
+  }
+  let figma = { ran: false, score: null, issueCount: null };
+  let figmaBlocks = false;
+  let figmaPolicy;
+  if (figmaRan) {
+    const figmaReport = reportActionRun({
+      kind: "checks",
+      checks: input.checks,
+      bypassIncomplete: input.bypassIncomplete,
+      enforced
+    });
+    figma = figmaReport.verdict.figma;
+    figmaPolicy = figmaReport.policy;
+    figmaBlocks = figmaReport.exitCode === 1;
+  }
+  const state = figmaPolicy ? worseState(agg.state, figmaPolicy.state) : agg.state;
+  const reasons = [];
+  for (const reason of [...agg.reasons, ...figmaPolicy?.reasons ?? []]) {
+    if (!reasons.includes(reason)) reasons.push(reason);
+  }
+  const retryable = agg.retryable || figmaPolicy?.retryable === true;
+  const tokens = {
+    ran: true,
+    driftCount: agg.driftCount,
+    offTokenCount: agg.offTokenCount,
+    unverifiedCount: agg.unverifiedCount
+  };
+  const verdict = buildVerdict({
+    figma,
+    tokens,
+    completeness: {
+      state,
+      reasons,
+      verified: state === "complete",
+      driftCount: tokens.driftCount,
+      offTokenCount: tokens.offTokenCount,
+      unverifiedCount: tokens.unverifiedCount,
+      retryable
+    },
+    figmaBlocks,
+    tokensBlock
+  });
+  const policy = buildCompleteness({
+    state,
+    reasons,
+    driftCount: figmaPolicy ? figmaPolicy.driftCount : agg.driftCount,
+    offTokenCount: figmaPolicy ? 0 : agg.offTokenCount,
+    unverifiedCount: figmaPolicy ? 0 : agg.unverifiedCount,
+    retryable
+  });
+  const outputs = verdictOutputs(verdict);
+  const successes = (input.checks ?? []).filter((check) => check.status === "success");
+  return {
+    policy,
+    verdict,
+    result: ciOutcomeFor(policy),
+    completeness: policy.state,
+    score: figma.score === null ? null : String(figma.score),
+    issuesCount: figma.issueCount === null ? successes.length === 0 ? null : "0" : String(figma.issueCount),
+    exitCode: figmaBlocks || tokensBlock ? 1 : 0,
+    outputs: {
+      ...outputs,
+      "drift-count": outputs["token-drift-count"],
+      "off-token-count": outputs["token-off-token-count"],
+      "confirmed-violation-count": outputs["token-confirmed-violation-count"]
+    }
+  };
+}
 
 // src/bypass-detect-client.ts
 async function callBypassDetect(input) {
@@ -25319,203 +26184,6 @@ async function callBypassDetect(input) {
     return { ok: false, status: resp.status, detail: detail.slice(0, 500) };
   }
   return await resp.json();
-}
-
-// src/config.ts
-var import_fs2 = __toESM(require("fs"));
-var import_path2 = __toESM(require("path"));
-var DEFAULT_VIEWPORT = { width: 1440, height: 900 };
-var DEFAULT_WAIT_AFTER_LOAD_MS = 500;
-var DEFAULT_WAIT_FOR_LOAD_STATE = "networkidle";
-var DEFAULT_TEXT_MODE = "styling-only";
-var VALID_WAIT_STATES = /* @__PURE__ */ new Set(["load", "domcontentloaded", "networkidle"]);
-var FRAME_VIEWPORT_MISMATCH_RATIO = 0.02;
-function isFrameViewportMismatch(frameWidth, viewportWidth) {
-  if (!(viewportWidth > 0) || !Number.isFinite(frameWidth) || !Number.isFinite(viewportWidth)) {
-    return false;
-  }
-  return Math.abs(frameWidth - viewportWidth) / viewportWidth > FRAME_VIEWPORT_MISMATCH_RATIO;
-}
-function warnFrameViewportMismatch(frameWidth, viewportWidth) {
-  if (!isFrameViewportMismatch(frameWidth, viewportWidth)) return false;
-  console.log(`[fidel-ci] frame_viewport_mismatch frame=${frameWidth} viewport=${viewportWidth}`);
-  return true;
-}
-function loadConfig(configPath) {
-  const resolvedPath = import_path2.default.resolve(configPath);
-  if (!import_fs2.default.existsSync(resolvedPath)) {
-    throw new Error(
-      `Config file not found: ${resolvedPath}
-
-Create one with:
-  npx usefidel init
-
-Or see: https://github.com/usefidel/fidel-action#configuration`
-    );
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(import_fs2.default.readFileSync(resolvedPath, "utf8"));
-  } catch (error) {
-    throw new Error(`Failed to parse ${resolvedPath}: ${error.message}`);
-  }
-  if (!isRecord(parsed)) {
-    throw new Error("fidel.config.json must be a JSON object");
-  }
-  const { checks, defaults, triggers, designSystemChecks } = parsed;
-  if (checks !== void 0 && !Array.isArray(checks)) {
-    throw new Error('fidel.config.json "checks" must be an array');
-  }
-  const hasFigmaChecks = Array.isArray(checks) && checks.length > 0;
-  const hasDesignSystemChecks = Array.isArray(designSystemChecks) && designSystemChecks.length > 0;
-  if (!hasFigmaChecks && !hasDesignSystemChecks) {
-    throw new Error(
-      'fidel.config.json has no checks.\n\nIt needs a non-empty "checks" array (Figma frames), a non-empty "designSystemChecks" array (design tokens), or both.\n\nSet it up with:\n  npx usefidel init'
-    );
-  }
-  const validatedChecks = hasFigmaChecks ? checks.map((value, index) => validateCheck(value, `checks[${index}]`)) : [];
-  const validatedDefaults = defaults === void 0 ? void 0 : validateDefaults(defaults, "defaults");
-  const validatedTriggers = triggers === void 0 ? void 0 : validateTriggers(triggers, "triggers");
-  return {
-    checks: validatedChecks,
-    defaults: validatedDefaults,
-    triggers: validatedTriggers
-  };
-}
-function substituteVars(input, vars) {
-  return input.replace(/\{pr\}/g, vars.pr ?? "").replace(/\{sha\}/g, vars.sha ?? "").replace(/\{branch\}/g, vars.branch ?? "").replace(/\$\{([A-Z_][A-Z0-9_]*)\}/g, (_, name) => process.env[name] ?? "").replace(/\$([A-Z_][A-Z0-9_]*)/g, (_, name) => process.env[name] ?? "");
-}
-function resolveCheck(check, defaults, vars) {
-  const viewport = check.viewport ?? defaults?.viewport ?? DEFAULT_VIEWPORT;
-  const waitAfterLoadMs = check.waitAfterLoadMs ?? defaults?.waitAfterLoadMs ?? DEFAULT_WAIT_AFTER_LOAD_MS;
-  const waitForLoadState = check.waitForLoadState ?? defaults?.waitForLoadState ?? DEFAULT_WAIT_FOR_LOAD_STATE;
-  const textMode = check.textMode ?? defaults?.textMode ?? DEFAULT_TEXT_MODE;
-  return {
-    name: check.name.trim(),
-    figma: substituteVars(check.figma, vars),
-    url: substituteVars(check.url, vars),
-    viewport,
-    waitForSelector: check.waitForSelector?.trim() || void 0,
-    waitAfterLoadMs,
-    waitForLoadState,
-    textMode
-  };
-}
-function validateCheck(value, location) {
-  if (!isRecord(value)) {
-    throw new Error(`${location} must be an object`);
-  }
-  const name = requireString(value.name, `${location}.name`);
-  const figma = requireString(value.figma, `${location}.figma`);
-  const url = requireString(value.url, `${location}.url`);
-  return {
-    name,
-    figma,
-    url,
-    viewport: value.viewport === void 0 ? void 0 : validateViewport(value.viewport, `${location}.viewport`),
-    waitForSelector: optionalString(value.waitForSelector, `${location}.waitForSelector`),
-    waitAfterLoadMs: optionalNonNegativeInteger(value.waitAfterLoadMs, `${location}.waitAfterLoadMs`),
-    waitForLoadState: optionalWaitForLoadState(value.waitForLoadState, `${location}.waitForLoadState`),
-    textMode: optionalString(value.textMode, `${location}.textMode`),
-    // Preserve steps as-is (unknown[]) so the runtime guard in main.ts can
-    // detect its presence. No validation of the shape — v2 owns that.
-    steps: value.steps !== void 0 ? value.steps : void 0
-  };
-}
-function validateDefaults(value, location) {
-  if (!isRecord(value)) {
-    throw new Error(`${location} must be an object`);
-  }
-  return {
-    viewport: value.viewport === void 0 ? void 0 : validateViewport(value.viewport, `${location}.viewport`),
-    waitAfterLoadMs: optionalNonNegativeInteger(value.waitAfterLoadMs, `${location}.waitAfterLoadMs`),
-    waitForLoadState: optionalWaitForLoadState(value.waitForLoadState, `${location}.waitForLoadState`),
-    textMode: optionalString(value.textMode, `${location}.textMode`)
-  };
-}
-function validateTriggers(value, location) {
-  if (!isRecord(value)) {
-    console.warn(`[fidel-ci] ${location} is not an object; ignoring`);
-    return void 0;
-  }
-  const { paths } = value;
-  if (paths === void 0) {
-    return {};
-  }
-  if (!Array.isArray(paths)) {
-    throw new Error(`${location}.paths must be an array of glob strings`);
-  }
-  if (paths.length > 64) {
-    throw new Error(`${location}.paths supports at most 64 entries`);
-  }
-  const validated = [];
-  for (let i = 0; i < paths.length; i += 1) {
-    const entry = paths[i];
-    if (typeof entry !== "string" || entry.trim() === "") {
-      throw new Error(`${location}.paths[${i}] must be a non-empty string`);
-    }
-    validated.push(entry);
-  }
-  return { paths: validated };
-}
-var MIN_VIEWPORT_PX = 320;
-var MAX_VIEWPORT_PX = 2560;
-function requireViewportAxis(value, location) {
-  const n = requirePositiveInteger(value, location);
-  if (n < MIN_VIEWPORT_PX || n > MAX_VIEWPORT_PX) {
-    throw new Error(
-      `${location} must be between ${MIN_VIEWPORT_PX} and ${MAX_VIEWPORT_PX} (got ${n})`
-    );
-  }
-  return n;
-}
-function validateViewport(value, location) {
-  if (!isRecord(value)) {
-    throw new Error(`${location} must be an object`);
-  }
-  return {
-    width: requireViewportAxis(value.width, `${location}.width`),
-    height: requireViewportAxis(value.height, `${location}.height`)
-  };
-}
-function optionalWaitForLoadState(value, location) {
-  if (value === void 0) {
-    return void 0;
-  }
-  if (typeof value !== "string" || !VALID_WAIT_STATES.has(value)) {
-    throw new Error(`${location} must be one of: load, domcontentloaded, networkidle`);
-  }
-  return value;
-}
-function optionalNonNegativeInteger(value, location) {
-  if (value === void 0) {
-    return void 0;
-  }
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`${location} must be a non-negative integer`);
-  }
-  return value;
-}
-function requirePositiveInteger(value, location) {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`${location} must be a positive integer`);
-  }
-  return value;
-}
-function requireString(value, location) {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`${location} must be a non-empty string`);
-  }
-  return value.trim();
-}
-function optionalString(value, location) {
-  if (value === void 0) {
-    return void 0;
-  }
-  return requireString(value, location);
-}
-function isRecord(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 // src/figma-walk.ts
@@ -27000,20 +27668,29 @@ async function run() {
     const githubToken = core.getInput("github-token");
     const failOnScore = parseIntegerInput(core.getInput("fail-on-score") || "0", "fail-on-score");
     const failOnDriftInput = core.getInput("fail-on-drift");
+    const config = loadConfig(configPath);
+    const templateVariables = getTemplateVariables();
+    const dsChecks = config.designSystemChecks ?? [];
+    if (config.checks.length === 0 && dsChecks.length === 0) {
+      core.notice("No checks configured. Nothing to compare \u2014 this is not a failure.");
+      core.setOutput("skipped", "true");
+      core.setOutput("skip-reason", "no_checks");
+      emitReport(reportActionRun({ kind: "skipped" }));
+      return;
+    }
     console.log("[fidel-ci] Requesting authentication tokens...");
     const oidcToken = await requestGitHubOidcToken();
     const { figmaAccessToken, supabaseAccessToken } = await requestCiTokens(oidcToken);
     console.log("[fidel-ci] Authenticated successfully.");
-    const config = loadConfig(configPath);
-    const templateVariables = getTemplateVariables();
-    if (config.checks.length === 0) {
-      core.notice("No Figma checks configured. Nothing to compare \u2014 this is not a failure.");
-      core.setOutput("skipped", "true");
-      core.setOutput("skip-reason", "no_figma_checks");
-      emitReport(reportActionRun({ kind: "skipped" }));
-      return;
+    const figmaAvailable = typeof figmaAccessToken === "string" && figmaAccessToken.length > 0;
+    let figmaChecks = config.checks;
+    if (figmaChecks.length > 0 && !figmaAvailable) {
+      const message = "No Figma account is connected for the user who linked this repo. Connect Figma in the Fidel app to run the Figma checks.";
+      if (dsChecks.length === 0) throw new Error(message);
+      core.warning(`${message} Skipping the Figma checks; running the design-system checks.`);
+      figmaChecks = [];
     }
-    const resolvedChecks = config.checks.map((check) => resolveCheck(check, config.defaults, templateVariables));
+    const resolvedChecks = figmaChecks.map((check) => resolveCheck(check, config.defaults, templateVariables));
     for (const check of config.checks) {
       if (check.steps !== void 0) {
         core.setFailed(
@@ -27048,12 +27725,33 @@ async function run() {
     for (const check of resolvedChecks) {
       results.push(await runCheck(check, figmaAccessToken, pipelineUrl, supabaseAccessToken));
     }
+    let dsResults = [];
+    if (dsChecks.length > 0) {
+      console.log(`[fidel-ci] Running ${dsChecks.length} design-system check(s)`);
+      try {
+        const pr = github2.context.payload.pull_request;
+        dsResults = await runDesignSystemChecks({
+          checks: dsChecks,
+          webValidateUrl: `${SUPABASE_URL}/functions/v1/web-validate`,
+          supabaseUrl: SUPABASE_URL,
+          supabaseAnonKey: SUPABASE_ANON_KEY,
+          supabaseJwt: supabaseAccessToken,
+          templateVariables,
+          repoFullName: `${github2.context.repo.owner}/${github2.context.repo.repo}`,
+          headSha: pr?.head?.sha ?? github2.context.sha ?? ""
+        });
+      } catch (err) {
+        core.warning(`Design-system checks could not run: ${err.message}`);
+      }
+    }
     const successfulResults = results.filter((result) => result.status === "success");
     const failedResults = results.filter((result) => result.status === "failed");
     const lowestScore = successfulResults.length > 0 ? Math.min(...successfulResults.map((result) => result.pipeline.score)) : 0;
     const totalIssues = successfulResults.reduce((sum, result) => sum + result.pipeline.totalDiffs, 0);
-    core.setOutput("score", String(lowestScore));
-    core.setOutput("issues-count", String(totalIssues));
+    if (figmaChecks.length > 0) {
+      core.setOutput("score", String(lowestScore));
+      core.setOutput("issues-count", String(totalIssues));
+    }
     let screenshotUrl;
     const firstSuccess = successfulResults[0];
     if (firstSuccess && firstSuccess.pipeline.diffs.length > 0) {
@@ -27073,7 +27771,7 @@ async function run() {
     const comment = await preparePullRequestComment(githubToken, results, screenshotUrl, {
       supabaseAccessToken,
       changedFilesResult
-    });
+    }, dsResults);
     const bypassIncomplete = comment.bypassIncomplete;
     const enforcement = resolveActionDriftEnforcement({
       failOnDriftInput,
@@ -27086,7 +27784,9 @@ async function run() {
       kind: "checks",
       checks: results.map((result) => result.status === "success" ? { status: "success", score: result.pipeline.score, totalDiffs: result.pipeline.totalDiffs } : { status: "failed", errorCode: result.errorCode }),
       bypassIncomplete: Boolean(bypassIncomplete),
-      enforced: failOnDrift
+      enforced: failOnDrift,
+      designSystem: dsChecks.length > 0 ? dsResults : void 0,
+      figmaRan: figmaChecks.length > 0
     });
     const completeness = reported.policy;
     const verdict = reported.verdict;
@@ -27095,7 +27795,7 @@ async function run() {
     emitLaneOutputs(verdict);
     const upgradeLines = failedResults.map((result) => result.upgradeTo).filter((line) => typeof line === "string" && line.length > 0).map((target) => `Upgrade to ${target}.`);
     await writeJobSummary(completeness, {
-      checks: results.length,
+      checks: results.length + dsResults.length,
       lowestScore,
       failedCount: failedResults.length,
       bypassIncompleteReason: bypassIncomplete?.reason,
@@ -27105,10 +27805,11 @@ async function run() {
     });
     if (reported.exitCode === 1) {
       const failures = [];
-      if (successfulResults.length === 0) failures.push("No checks completed successfully");
+      if (figmaChecks.length > 0 && successfulResults.length === 0) failures.push("No checks completed successfully");
       if (failedResults.length > 0) failures.push(`${failedResults.length} check(s) failed`);
+      if (verdict.enforcement.by === "tokens" && verdict.enforcement.reason) failures.push(verdict.enforcement.reason);
       const confirmed = confirmedViolationCount(completeness);
-      if (failOnDrift && completeness.verified && (confirmed ?? 0) > 0) {
+      if (figmaChecks.length > 0 && failOnDrift && completeness.verified && (confirmed ?? 0) > 0) {
         failures.push(enforcement.source === "fail-on-score" ? `Design validation score ${lowestScore} is below threshold ${failOnScore}` : formatViolationCounts(completeness, totalIssues));
       }
       for (const line of describeReasons(completeness.reasons)) failures.push(line);
@@ -27392,7 +28093,7 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken) {
     };
   }
 }
-async function preparePullRequestComment(githubToken, results, screenshotUrl, bypassCtx) {
+async function preparePullRequestComment(githubToken, results, screenshotUrl, bypassCtx, designSystem) {
   const pullRequest = github2.context.payload.pull_request;
   if (!pullRequest) {
     console.log("[fidel-ci] No pull request context detected; skipping comment");
@@ -27466,7 +28167,7 @@ async function preparePullRequestComment(githubToken, results, screenshotUrl, by
         bypassFindings,
         bypassHeadSha: headSha,
         bypassIncomplete
-      }, verdict);
+      }, verdict, designSystem);
       const commentId = await postOrUpdateComment(githubToken, repository, pullRequest.number, commentBody);
       console.log(`[fidel-ci] Updated PR comment ${commentId}`);
     }
@@ -27489,7 +28190,7 @@ async function waitForUrl(url) {
     console.log(
       `[fidel-ci] Preview URL not ready yet (${attempt}/20): ${url}. Retrying in ${Math.round(delayMs / 1e3)}s`
     );
-    await sleep(delayMs);
+    await sleep2(delayMs);
     delayMs = Math.min(Math.round(delayMs * 1.5), 3e4);
   }
   console.log(`[fidel-ci] Proceeding even though preview URL never returned a ready status: ${url}`);
@@ -27524,7 +28225,7 @@ function parseIntegerInput(value, inputName) {
   }
   return parsed;
 }
-function sleep(ms) {
+function sleep2(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 void run();

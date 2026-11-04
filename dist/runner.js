@@ -1737,8 +1737,24 @@ Or see: https://github.com/usefidel/fidel-action#configuration`
   return {
     checks: validatedChecks,
     defaults: validatedDefaults,
-    triggers: validatedTriggers
+    triggers: validatedTriggers,
+    designSystemChecks: parseDesignSystemChecks(designSystemChecks)
   };
+}
+var MAX_DESIGN_SYSTEM_CHECKS = 10;
+function parseDesignSystemChecks(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const entry of raw) {
+    if (out.length >= MAX_DESIGN_SYSTEM_CHECKS) break;
+    if (!isRecord(entry)) continue;
+    const name = typeof entry.name === "string" ? entry.name.trim() : "";
+    const url = typeof entry.url === "string" ? entry.url.trim() : "";
+    if (!name || !url) continue;
+    const brandKey = typeof entry.brandKey === "string" && entry.brandKey.trim() ? entry.brandKey.trim() : void 0;
+    out.push({ name, url, ...brandKey ? { brandKey } : {} });
+  }
+  return out;
 }
 function substituteVars(input, vars) {
   return input.replace(/\{pr\}/g, vars.pr ?? "").replace(/\{sha\}/g, vars.sha ?? "").replace(/\{branch\}/g, vars.branch ?? "").replace(/\$\{([A-Z_][A-Z0-9_]*)\}/g, (_, name) => process.env[name] ?? "").replace(/\$([A-Z_][A-Z0-9_]*)/g, (_, name) => process.env[name] ?? "");
@@ -2602,6 +2618,30 @@ async function deriveIdempotencyKey(repoFullName, headSha, contextKey, url) {
   const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
   return `ds-${hex}`.slice(0, 128);
 }
+function aggregateDsOutcome(results) {
+  if (results.length === 0) {
+    return buildCompleteness({ state: "unverified", reasons: ["validation_not_attempted"], retryable: false });
+  }
+  let state = "complete";
+  const reasons = [];
+  let driftCount = 0;
+  let offTokenCount = 0;
+  let unverifiedCount = 0;
+  let retryable = false;
+  for (const r of results) {
+    state = worseState(state, r.completeness.state);
+    reasons.push(...r.completeness.reasons);
+    driftCount = addCounts(driftCount, r.completeness.driftCount);
+    offTokenCount = addCounts(offTokenCount, r.completeness.offTokenCount);
+    unverifiedCount = addCounts(unverifiedCount, r.completeness.unverifiedCount);
+    retryable = retryable || r.completeness.retryable;
+  }
+  return buildCompleteness({ state, reasons, driftCount, offTokenCount, unverifiedCount, retryable });
+}
+function addCounts(a, b) {
+  if (a === null || b === null) return null;
+  return a + b;
+}
 
 // src/runner-entry.ts
 async function captureSnapshotViaLambda(lambdaUrl, lambdaSecret, options) {
@@ -2733,30 +2773,6 @@ async function runDesignSystemLegIfConfigured(outputFile, templateVariables, hea
     import_fs4.default.appendFileSync(outputFile, `ds_retryable=${aggregate.retryable}
 `);
   }
-}
-function aggregateDsOutcome(results) {
-  if (results.length === 0) {
-    return buildCompleteness({ state: "unverified", reasons: ["validation_not_attempted"], retryable: false });
-  }
-  let state = "complete";
-  const reasons = [];
-  let driftCount = 0;
-  let offTokenCount = 0;
-  let unverifiedCount = 0;
-  let retryable = false;
-  for (const r of results) {
-    state = worseState(state, r.completeness.state);
-    reasons.push(...r.completeness.reasons);
-    driftCount = addCounts(driftCount, r.completeness.driftCount);
-    offTokenCount = addCounts(offTokenCount, r.completeness.offTokenCount);
-    unverifiedCount = addCounts(unverifiedCount, r.completeness.unverifiedCount);
-    retryable = retryable || r.completeness.retryable;
-  }
-  return buildCompleteness({ state, reasons, driftCount, offTokenCount, unverifiedCount, retryable });
-}
-function addCounts(a, b) {
-  if (a === null || b === null) return null;
-  return a + b;
 }
 async function main() {
   const configJson = process.env.CONFIG_JSON;
