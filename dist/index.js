@@ -27737,7 +27737,7 @@ async function run() {
           supabaseAnonKey: SUPABASE_ANON_KEY,
           supabaseJwt: supabaseAccessToken,
           templateVariables,
-          repoFullName: `${github2.context.repo.owner}/${github2.context.repo.repo}`,
+          repoFullName: `${github2.context.repo.owner}/${github2.context.repo.repo}`.toLowerCase(),
           headSha: pr?.head?.sha ?? github2.context.sha ?? ""
         });
       } catch (err) {
