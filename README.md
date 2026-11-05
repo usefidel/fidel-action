@@ -77,6 +77,7 @@ missing, the action fails with a link back to this section.
 | `waitForLoadState` | no | `load`, `domcontentloaded`, or `networkidle` (default). |
 | `waitAfterLoadMs` | no | Extra settle time, in milliseconds. Defaults to `500`. |
 | `textMode` | no | Text comparison mode. Defaults to `styling-only`. |
+| `projectId` | no | Project this check's run is saved under. Defaults to the top-level `projectId`. |
 
 `checks` may be an empty array if your config only uses `designSystemChecks`.
 
@@ -84,6 +85,19 @@ missing, the action fails with a link back to this section.
 
 Checks your components against a designated brand context rather than a single Figma
 frame. This leg runs through the Fidel GitHub App. Set it up with `npx usefidel init`.
+
+A `designSystemChecks` entry takes the same optional `projectId`.
+
+### `projectId` — where CI runs are saved
+
+Without one, CI runs belong to no project and do not show in the web app. Set the
+top-level `projectId` to the id in the project's address (`/projects/<id>`), or run
+`npx usefidel link --project <id>` (or `init --project <id>`) to write it for you.
+The id must belong to your team, otherwise the run is refused with `project_not_found`.
+
+```json
+{ "projectId": "0b9f2a4e-1c3d-4e5f-8a6b-7c8d9e0f1a2b", "designSystemChecks": [{ "name": "Home", "url": "https://example.com" }] }
+```
 
 ### `defaults`
 

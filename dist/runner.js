@@ -1188,6 +1188,7 @@ async function saveRunTo(backend, opts) {
     status: isError ? "error" : "complete"
   };
   if (notVerified.length > 0) body.notVerified = notVerified;
+  if (opts.projectId) body.projectId = opts.projectId;
   if (isError && errorPayload) {
     body.errorCode = errorPayload.errorCode;
     body.isRetryable = errorPayload.isRetryable;
@@ -3517,6 +3518,10 @@ var WORKSPACE_SLUG = /^[a-z0-9][a-z0-9._-]{0,99}$/;
 function isWorkspaceSlug(value) {
   return typeof value === "string" && WORKSPACE_SLUG.test(value);
 }
+var PROJECT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isProjectId(value) {
+  return typeof value === "string" && PROJECT_ID.test(value);
+}
 var DEFAULT_VIEWPORT = { width: DEFAULT_VIEWPORT_WIDTH, height: 900 };
 var DEFAULT_WAIT_AFTER_LOAD_MS = 500;
 var DEFAULT_WAIT_FOR_LOAD_STATE = "networkidle";
@@ -3543,10 +3548,15 @@ Or see: https://github.com/usefidel/fidel-action#configuration`
   if (!isRecord(parsed)) {
     throw new Error("fidel.config.json must be a JSON object");
   }
-  const { checks, defaults, triggers, designSystemChecks, workspace } = parsed;
+  const { checks, defaults, triggers, designSystemChecks, workspace, projectId } = parsed;
   if (workspace !== void 0 && !isWorkspaceSlug(workspace)) {
     throw new Error(
       'fidel.config.json "workspace" must be a workspace short name such as "devstaging". Run `npx usefidel init` to set it, or remove the field.'
+    );
+  }
+  if (projectId !== void 0 && !isProjectId(projectId)) {
+    throw new Error(
+      `fidel.config.json "projectId" must be a project id (a UUID, the last part of the project's URL in the web app), or remove the field.`
     );
   }
   if (checks !== void 0 && !Array.isArray(checks)) {
@@ -3559,7 +3569,10 @@ Or see: https://github.com/usefidel/fidel-action#configuration`
       'fidel.config.json has no checks.\n\nIt needs a non-empty "checks" array (Figma frames), a non-empty "designSystemChecks" array (design tokens), or both.\n\nSet it up with:\n  npx usefidel init'
     );
   }
-  const validatedChecks = hasFigmaChecks ? checks.map((value, index) => validateCheck(value, `checks[${index}]`)) : [];
+  const validatedChecks = hasFigmaChecks ? checks.map((value, index) => {
+    const check = validateCheck(value, `checks[${index}]`);
+    return check.projectId || projectId === void 0 ? check : { ...check, projectId };
+  }) : [];
   const validatedDefaults = defaults === void 0 ? void 0 : validateDefaults(defaults, "defaults");
   const validatedTriggers = triggers === void 0 ? void 0 : validateTriggers(triggers, "triggers");
   return {
@@ -3567,7 +3580,8 @@ Or see: https://github.com/usefidel/fidel-action#configuration`
     defaults: validatedDefaults,
     triggers: validatedTriggers,
     designSystemChecks: parseDesignSystemChecks(designSystemChecks),
-    ...workspace !== void 0 ? { workspace } : {}
+    ...workspace !== void 0 ? { workspace } : {},
+    ...projectId !== void 0 ? { projectId } : {}
   };
 }
 var MAX_DESIGN_SYSTEM_CHECKS = 10;
@@ -3581,7 +3595,8 @@ function parseDesignSystemChecks(raw) {
     const url = typeof entry.url === "string" ? entry.url.trim() : "";
     if (!name || !url) continue;
     const brandKey = typeof entry.brandKey === "string" && entry.brandKey.trim() ? entry.brandKey.trim() : void 0;
-    out.push({ name, url, ...brandKey ? { brandKey } : {} });
+    const projectId = isProjectId(entry.projectId) ? entry.projectId : void 0;
+    out.push({ name, url, ...brandKey ? { brandKey } : {}, ...projectId ? { projectId } : {} });
   }
   return out;
 }
@@ -3721,7 +3736,8 @@ function resolveCheck(check, defaults, vars) {
     waitForSelector: check.waitForSelector?.trim() || void 0,
     waitAfterLoadMs,
     waitForLoadState,
-    textMode
+    textMode,
+    ...check.projectId ? { projectId: check.projectId } : {}
   };
 }
 function validateCheck(value, location) {
@@ -3731,10 +3747,14 @@ function validateCheck(value, location) {
   const name = requireString(value.name, `${location}.name`);
   const figma = requireString(value.figma, `${location}.figma`);
   const url = requireString(value.url, `${location}.url`);
+  if (value.projectId !== void 0 && !isProjectId(value.projectId)) {
+    throw new Error(`${location}.projectId must be a project id (a UUID from the project's URL in the web app)`);
+  }
   return {
     name,
     figma,
     url,
+    ...value.projectId !== void 0 ? { projectId: value.projectId } : {},
     viewport: value.viewport === void 0 ? void 0 : validateViewport(value.viewport, `${location}.viewport`),
     waitForSelector: optionalString(value.waitForSelector, `${location}.waitForSelector`),
     waitAfterLoadMs: optionalNonNegativeInteger(value.waitAfterLoadMs, `${location}.waitAfterLoadMs`),
@@ -4211,6 +4231,10 @@ async function runOneDesignSystemCheck(check, opts) {
     if (check.brandKey) {
       postBody.brandKey = check.brandKey;
     }
+    const projectId = check.projectId ?? opts.projectId;
+    if (projectId) {
+      postBody.projectId = projectId;
+    }
     if (opts.viewport) {
       postBody.viewport = opts.viewport;
     }
@@ -4655,9 +4679,19 @@ function extractDesignSystemChecks(rawConfigJson) {
     const url = typeof rec.url === "string" ? rec.url.trim() : "";
     if (!name || !url) continue;
     const brandKey = typeof rec.brandKey === "string" && rec.brandKey.trim() ? rec.brandKey.trim() : void 0;
-    out.push({ name, url, ...brandKey ? { brandKey } : {} });
+    const projectId = isProjectId(rec.projectId) ? rec.projectId : void 0;
+    out.push({ name, url, ...brandKey ? { brandKey } : {}, ...projectId ? { projectId } : {} });
   }
   return out;
+}
+function extractProjectId(rawConfigJson) {
+  if (!rawConfigJson) return void 0;
+  try {
+    const id = JSON.parse(rawConfigJson).projectId;
+    return isProjectId(id) ? id : void 0;
+  } catch {
+    return void 0;
+  }
 }
 async function runDesignSystemLegIfConfigured(outputFile, templateVariables, headSha) {
   const dsChecks = extractDesignSystemChecks(process.env.CONFIG_JSON);
@@ -4685,6 +4719,7 @@ async function runDesignSystemLegIfConfigured(outputFile, templateVariables, hea
       templateVariables,
       repoFullName: repository,
       headSha: headSha ?? "",
+      projectId: extractProjectId(process.env.CONFIG_JSON),
       // Environment-correct report link. Unset on prod (the default is prod),
       // set to the staging web app by fidel-runner.yml when ENV_TAG=staging —
       // otherwise a staging run links to a prod report that does not exist.
@@ -4952,7 +4987,8 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, backend, 
       pipeline,
       supabaseToken,
       elapsedMs,
-      backend
+      backend,
+      projectId: check.projectId
     }).catch((err) => {
       console.log(`[fidel-runner] Save run failed (non-fatal): ${err.message}`);
     });
@@ -4981,7 +5017,8 @@ async function runCheck(check, figmaToken, pipelineUrl, supabaseToken, backend, 
       elapsedMs,
       errorPayload,
       errorMessage: message.slice(0, 500),
-      backend
+      backend,
+      projectId: check.projectId
     }).catch((saveErr) => {
       console.log(`[fidel-runner] Save error run failed (non-fatal): ${saveErr.message}`);
     });
