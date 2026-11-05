@@ -581,7 +581,11 @@
     }
     return false;
   }
-  function toDomElement(element, viewportWidth, viewportHeight, boundsOrigin) {
+  function rootFontSizePx() {
+    const raw = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return Number.isFinite(raw) && raw > 0 ? raw : void 0;
+  }
+  function toDomElement(element, viewportWidth, viewportHeight, rootFontSize, boundsOrigin) {
     const style = window.getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     const absoluteX = rect.left + window.scrollX;
@@ -643,6 +647,7 @@
       text: cleanText(rawText),
       fontFamily: style.fontFamily,
       fontSize: style.fontSize,
+      rootFontSize,
       fontWeight: style.fontWeight,
       lineHeight: style.lineHeight,
       letterSpacing: style.letterSpacing,
@@ -787,7 +792,8 @@
     const elements = getCandidateElements(includeNavigation);
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    return annotateOverlapGroups(elements.map((el) => toDomElement(el, viewportWidth, viewportHeight)).filter((el) => el.visible));
+    const rootFontSize = rootFontSizePx();
+    return annotateOverlapGroups(elements.map((el) => toDomElement(el, viewportWidth, viewportHeight, rootFontSize)).filter((el) => el.visible));
   }
   var PSEUDO_STATE_PROPS = [
     "color",
@@ -857,7 +863,52 @@
     }
     return props;
   }
+  function isScrollable(el) {
+    return el.scrollTop !== 0 || el.scrollLeft !== 0 || el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth;
+  }
+  function recordScrollPositions(scope) {
+    const out = [{ target: null, left: window.scrollX, top: window.scrollY }];
+    const scroller = document.scrollingElement;
+    const push = (el) => {
+      if (el === scroller || !isScrollable(el)) return;
+      out.push({ target: el, left: el.scrollLeft, top: el.scrollTop });
+    };
+    if (scope) {
+      let node = scope.parentNode;
+      while (node) {
+        if (node instanceof Element) push(node);
+        node = node instanceof ShadowRoot ? node.host : node.parentNode;
+      }
+    } else {
+      for (const el of Array.from(document.querySelectorAll("*"))) push(el);
+    }
+    return out;
+  }
+  function restoreScrollPositions(positions) {
+    let moved = 0;
+    for (const p of positions) {
+      if (p.target === null) {
+        if (window.scrollX === p.left && window.scrollY === p.top) continue;
+        window.scrollTo({ left: p.left, top: p.top, behavior: "instant" });
+        moved++;
+      } else {
+        if (!p.target.isConnected) continue;
+        if (p.target.scrollLeft === p.left && p.target.scrollTop === p.top) continue;
+        p.target.scrollTo({ left: p.left, top: p.top, behavior: "instant" });
+        moved++;
+      }
+    }
+    return moved;
+  }
   async function capturePseudoStateStyles(element, states) {
+    const scroll = recordScrollPositions(element);
+    try {
+      return await capturePseudoStateStylesUnscrolled(element, states);
+    } finally {
+      restoreScrollPositions(scroll);
+    }
+  }
+  async function capturePseudoStateStylesUnscrolled(element, states) {
     const htmlEl = element;
     const result = {};
     const baseStyle = window.getComputedStyle(element);
@@ -888,13 +939,13 @@
           }
         }
       } else if (state === "focus") {
-        htmlEl.focus();
+        htmlEl.focus({ preventScroll: true });
         await new Promise((r) => setTimeout(r, 20));
         const focusStyle = window.getComputedStyle(element);
         diff = diffFromBase(base, focusStyle);
         htmlEl.blur();
       } else if (state === "focus-visible") {
-        htmlEl.focus();
+        htmlEl.focus({ preventScroll: true });
         await new Promise((r) => setTimeout(r, 20));
         const focusVisibleStyle = window.getComputedStyle(element);
         diff = diffFromBase(base, focusVisibleStyle);
@@ -933,11 +984,61 @@
     maxDepth: 16,
     maxElements: 64,
     maxNames: 5e3,
-    maxMs: 5e3
+    maxMs: 5e3,
+    maxDeclarations: 2e4,
+    maxInlineElements: 2e3,
+    maxScopeSelectors: 3e3,
+    maxScopeProbes: 4e3,
+    maxProbesPerSelector: 32,
+    maxAnimations: 500
   };
   var THEME_SCOPE_SELECTORS = [".dark", ".light", "[data-theme]", "[data-mode]", "[data-color-scheme]"];
+  var CSS_WIDE_KEYWORD = /^(initial|inherit|unset|revert|revert-layer)$/i;
   function isGroupingRule(rule) {
     return typeof rule.cssRules !== "undefined";
+  }
+  function splitSelectorList(selector) {
+    const parts = [];
+    let depth = 0;
+    let quote = null;
+    let start = 0;
+    for (let i = 0; i < selector.length; i++) {
+      const ch = selector[i];
+      if (quote) {
+        if (ch === "\\") i++;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === "\\") {
+        i++;
+        continue;
+      }
+      if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === "(" || ch === "[") depth++;
+      else if (ch === ")" || ch === "]") depth = Math.max(0, depth - 1);
+      else if (ch === "," && depth === 0) {
+        parts.push(selector.slice(start, i).trim());
+        start = i + 1;
+      }
+    }
+    parts.push(selector.slice(start).trim());
+    return parts.filter(Boolean);
+  }
+  var PSEUDO_ELEMENT_PART = /(^|[^\\])(::|:(before|after|first-line|first-letter)\b)/i;
+  var SHADOW_ONLY_PART = /(^|[^\\]):(host-context|host|slotted|part)\b|::(slotted|part)\b/i;
+  var ROOT_ONLY_PART = /^(:root|html)$/i;
+  var HOST_ONLY_PART = /^:host(\([^)]*\))?$/i;
+  var USE_ANCESTRY = /(^|[\s>+~(,])use(?![\w-])/i;
+  var READABLE_PSEUDO_ELEMENT = /^(.*?)(?:::(before|after|marker|placeholder|backdrop|file-selector-button|selection|first-line|first-letter)|(?<!:):(before|after|first-line|first-letter))$/i;
+  function splitPseudoElementPart(part) {
+    const m = READABLE_PSEUDO_ELEMENT.exec(part);
+    if (!m) return null;
+    let origin = m[1];
+    if (origin.endsWith("\\")) return null;
+    if (PSEUDO_ELEMENT_PART.test(origin)) return null;
+    origin = origin.trim();
+    if (origin === "" || /[>+~\s]$/.test(m[1])) origin = `${origin} *`.trim();
+    return { origin, pseudo: `::${(m[2] ?? m[3]).toLowerCase()}` };
   }
   function conditionMatches(rule, conditionText) {
     try {
@@ -952,80 +1053,217 @@
     }
     return true;
   }
+  var TOP_LEVEL = { parent: null, parentAuthored: null, scope: null, inScope: false, broken: false };
+  function replaceSelectorToken(selector, token, replacement) {
+    let out = "";
+    let count = 0;
+    let quote = null;
+    for (let i = 0; i < selector.length; i++) {
+      const ch = selector[i];
+      if (quote) {
+        out += ch;
+        if (ch === "\\" && i + 1 < selector.length) {
+          out += selector[++i];
+          continue;
+        }
+        if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === "\\" && i + 1 < selector.length) {
+        out += ch + selector[++i];
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+        out += ch;
+        continue;
+      }
+      if (selector.startsWith(token, i)) {
+        const next = selector[i + token.length] ?? "";
+        if (!(token[0] === ":" && /[\w-]/.test(next))) {
+          out += replacement;
+          count++;
+          i += token.length - 1;
+          continue;
+        }
+      }
+      out += ch;
+    }
+    return { text: out, count };
+  }
+  function resolveNestedSelector(text, nest) {
+    if (nest.broken) return null;
+    if (!nest.parent && !nest.inScope) return text;
+    const out = [];
+    for (const part of splitSelectorList(text)) {
+      let p = part;
+      const amp = replaceSelectorToken(p, "&", "");
+      if (amp.count > 0) {
+        const target = nest.parent ?? (nest.inScope ? nest.scope : null);
+        if (!target || PSEUDO_ELEMENT_PART.test(target)) return null;
+        p = replaceSelectorToken(p, "&", `:is(${target})`).text;
+      }
+      const sc = replaceSelectorToken(p, ":scope", "");
+      if (sc.count > 0) {
+        if (!nest.scope) return null;
+        p = replaceSelectorToken(p, ":scope", `:is(${nest.scope})`).text;
+      }
+      if (amp.count === 0 && sc.count === 0 && nest.parent) {
+        if (PSEUDO_ELEMENT_PART.test(nest.parent)) return null;
+        p = `:is(${nest.parent}) ${p}`;
+      }
+      out.push(p);
+    }
+    return out.join(", ");
+  }
   function captureCssVariableState(options = {}) {
     const caps = { ...CSSVAR_DEFAULT_CAPS, ...options };
     const startedAt = Date.now();
     const warnings = [];
     const declarations = [];
+    const sites = [];
     const discovered = /* @__PURE__ */ new Set();
-    const scopeSelectorsFound = /* @__PURE__ */ new Set();
+    const keyframesProps = /* @__PURE__ */ new Map();
     let sheetsSeen = 0;
     let rulesSeen = 0;
     let truncated = false;
+    let traversalStopped = false;
     let provenanceUnverified = false;
+    const warned = /* @__PURE__ */ new Set();
     const note = (kind, detail) => {
-      truncated = kind !== "stylesheet_inaccessible";
+      if (kind !== "stylesheet_inaccessible") truncated = true;
+      const key = `${kind}\0${detail}`;
+      if (warned.has(key)) return;
+      warned.add(key);
       if (warnings.length < 100) warnings.push({ kind, detail });
     };
     const outOfTime = () => Date.now() - startedAt > caps.maxMs;
-    const visitRules = (rules, href, layers, conditions, active, depth) => {
+    const record = (decl, site) => {
+      if (declarations.length >= caps.maxDeclarations) {
+        note("cap_declarations", `stopped after ${caps.maxDeclarations} custom-property declarations`);
+        traversalStopped = true;
+        return false;
+      }
+      if (!discovered.has(decl.name) && discovered.size >= caps.maxNames) {
+        note("cap_names", `stopped after ${caps.maxNames} distinct names`);
+        return true;
+      }
+      discovered.add(decl.name);
+      declarations.push(decl);
+      sites.push(site);
+      return true;
+    };
+    const visitRules = (rules, href, layers, conditions, active, depth, tree, nest) => {
+      if (traversalStopped) return;
       if (depth > caps.maxDepth) {
         note("cap_depth", `nesting deeper than ${caps.maxDepth} in ${href ?? "<style>"}`);
         return;
       }
       for (const rule of Array.from(rules)) {
+        if (traversalStopped) return;
         if (rulesSeen++ >= caps.maxRules) {
           note("cap_rules", `stopped after ${caps.maxRules} rules`);
+          traversalStopped = true;
           return;
         }
         if (outOfTime()) {
           note("cap_time", `stopped after ${caps.maxMs}ms during traversal`);
+          traversalStopped = true;
           return;
         }
-        if (typeof CSSStyleRule !== "undefined" && rule instanceof CSSStyleRule) {
-          const selector = rule.selectorText ?? "";
-          for (const propName of Array.from(rule.style)) {
+        const isStyleRule = typeof CSSStyleRule !== "undefined" && rule instanceof CSSStyleRule;
+        const isScopeRule = typeof globalThis.CSSScopeRule !== "undefined" && rule instanceof globalThis.CSSScopeRule;
+        const ruleName = rule.constructor?.name ?? "";
+        const isNestedDeclarations = ruleName === "CSSNestedDeclarations";
+        const isKeyframe = typeof CSSKeyframeRule !== "undefined" && rule instanceof CSSKeyframeRule;
+        const ruleStyle = rule.style;
+        let ownQuery = null;
+        if (ruleStyle && typeof ruleStyle.getPropertyValue === "function") {
+          let selector;
+          let site;
+          if (isStyleRule) {
+            selector = rule.selectorText ?? "";
+            ownQuery = resolveNestedSelector(selector, nest);
+            site = { kind: "rule", root: tree.root, host: tree.host, query: ownQuery, element: null, pseudo: "" };
+          } else if (isNestedDeclarations) {
+            const target = nest.broken ? null : nest.parent ?? (nest.inScope ? nest.scope : null);
+            selector = nest.parentAuthored ?? (nest.inScope ? ":scope" : "");
+            site = { kind: "rule", root: tree.root, host: tree.host, query: target, element: null, pseudo: "" };
+          } else if (isKeyframe) {
+            const parentName = rule.parentRule?.name ?? "";
+            selector = `@keyframes ${parentName} ${rule.keyText}`;
+            let props = keyframesProps.get(parentName);
+            if (!props) {
+              props = /* @__PURE__ */ new Map();
+              keyframesProps.set(parentName, props);
+            }
+            for (const propName of Array.from(ruleStyle)) {
+              if (propName.startsWith("--")) props.set(propName, ruleStyle.getPropertyValue(propName).trim());
+            }
+            site = { kind: "none", root: tree.root, host: tree.host, query: null, element: null, pseudo: "" };
+          } else {
+            selector = `@${ruleName || "rule"}`;
+            site = { kind: "rule", root: tree.root, host: tree.host, query: null, element: null, pseudo: "" };
+          }
+          for (const propName of Array.from(ruleStyle)) {
             if (!propName.startsWith("--")) continue;
-            if (discovered.size >= caps.maxNames) {
-              note("cap_names", `stopped after ${caps.maxNames} distinct names`);
-              break;
-            }
-            discovered.add(propName);
-            declarations.push({
-              name: propName,
-              value: rule.style.getPropertyValue(propName).trim(),
-              selector,
-              href,
-              layers: layers.slice(),
-              conditions: conditions.slice(),
-              active
-            });
-            if (selector && !/^(:root|html)$/i.test(selector.trim())) {
-              scopeSelectorsFound.add(selector);
-            }
+            const ok = record(
+              {
+                name: propName,
+                value: ruleStyle.getPropertyValue(propName).trim(),
+                selector,
+                href,
+                layers: layers.slice(),
+                conditions: conditions.slice(),
+                active
+              },
+              site
+            );
+            if (!ok) return;
           }
         }
         if (isGroupingRule(rule)) {
-          let nested = null;
+          let nestedRules = null;
           try {
-            nested = rule.cssRules;
+            nestedRules = rule.cssRules;
           } catch {
-            nested = null;
+            nestedRules = null;
           }
-          if (!nested) continue;
+          if (!nestedRules) continue;
           const layerName = rule.name;
           const conditionText = rule.conditionText;
           const nextLayers = typeof layerName === "string" && layerName ? layers.concat(layerName) : layers;
           const nextConditions = typeof conditionText === "string" && conditionText ? conditions.concat(conditionText) : conditions;
           const nextActive = typeof conditionText === "string" && conditionText ? active && conditionMatches(rule, conditionText) : active;
-          visitRules(nested, href, nextLayers, nextConditions, nextActive, depth + 1);
+          let nextNest = nest;
+          if (isStyleRule) {
+            nextNest = {
+              parent: ownQuery,
+              parentAuthored: rule.selectorText ?? "",
+              scope: nest.scope,
+              inScope: nest.inScope,
+              broken: nest.broken || ownQuery === null
+            };
+          } else if (isScopeRule) {
+            const start = rule.start ?? null;
+            const resolvedStart = start ? resolveNestedSelector(start, nest) : null;
+            nextNest = {
+              parent: null,
+              parentAuthored: null,
+              scope: resolvedStart,
+              inScope: true,
+              broken: nest.broken || start !== null && resolvedStart === null
+            };
+          }
+          visitRules(nestedRules, href, nextLayers, nextConditions, nextActive, depth + 1, tree, nextNest);
         }
         if (typeof CSSImportRule !== "undefined" && rule instanceof CSSImportRule) {
-          if (rule.styleSheet) visitSheet(rule.styleSheet, depth + 1);
+          if (rule.styleSheet) visitSheet(rule.styleSheet, tree, depth + 1);
         }
       }
     };
-    const visitSheet = (sheet, depth = 0) => {
+    const visitSheet = (sheet, tree, depth = 0) => {
+      if (traversalStopped) return;
       if (sheetsSeen++ >= caps.maxStyleSheets) {
         note("cap_stylesheets", `stopped after ${caps.maxStyleSheets} stylesheets`);
         return;
@@ -1038,8 +1276,9 @@
         note("stylesheet_inaccessible", sheet.href ?? "<unknown href>");
         return;
       }
-      visitRules(rules, sheet.href, [], [], true, depth);
+      visitRules(rules, sheet.href, [], [], true, depth, tree, TOP_LEVEL);
     };
+    const documentTree = { root: document, host: null };
     const allSheets = [];
     try {
       allSheets.push(...Array.from(document.styleSheets));
@@ -1050,52 +1289,184 @@
       if (adopted) allSheets.push(...Array.from(adopted));
     } catch {
     }
-    for (const sheet of allSheets) visitSheet(sheet);
+    for (const sheet of allSheets) visitSheet(sheet, documentTree);
     const shadowHosts = [];
+    const shadowRoots = [];
     try {
-      for (const el of Array.from(document.querySelectorAll("*"))) {
-        const root = el.shadowRoot;
-        if (!root) continue;
-        shadowHosts.push(el);
-        if (shadowHosts.length >= caps.maxElements) break;
-        try {
-          const adopted = root.adoptedStyleSheets;
-          if (adopted) for (const s of Array.from(adopted)) visitSheet(s);
-        } catch {
+      const queue = [document];
+      let hostCapHit = false;
+      while (queue.length > 0 && !hostCapHit) {
+        const scopeRoot = queue.shift();
+        const all = scopeRoot.querySelectorAll("*");
+        for (let i = 0; i < all.length; i++) {
+          const el = all[i];
+          const root = el.shadowRoot;
+          if (!root) continue;
+          if (shadowHosts.length >= caps.maxElements) {
+            note("cap_elements", `stopped after ${caps.maxElements} shadow hosts`);
+            hostCapHit = true;
+            break;
+          }
+          shadowHosts.push(el);
+          shadowRoots.push(root);
+          queue.push(root);
+          const tree = { root, host: el };
+          try {
+            for (const s of Array.from(root.styleSheets ?? [])) visitSheet(s, tree);
+          } catch {
+          }
+          try {
+            const adopted = root.adoptedStyleSheets;
+            if (adopted) for (const s of Array.from(adopted)) visitSheet(s, tree);
+          } catch {
+          }
         }
+      }
+    } catch {
+    }
+    let inlineElements = 0;
+    try {
+      const trees = [documentTree].concat(shadowRoots.map((root, i) => ({ root, host: shadowHosts[i] })));
+      outer: for (const tree of trees) {
+        const list = tree.root.querySelectorAll('[style*="--"]');
+        for (let i = 0; i < list.length; i++) {
+          if (traversalStopped) break outer;
+          if (inlineElements >= caps.maxInlineElements) {
+            note("cap_inline", `stopped after ${caps.maxInlineElements} elements with inline custom properties`);
+            break outer;
+          }
+          if (outOfTime()) {
+            note("cap_time", `stopped after ${caps.maxMs}ms reading style attributes`);
+            break outer;
+          }
+          const el = list[i];
+          const style = el.style;
+          if (!style) continue;
+          inlineElements++;
+          for (let p = 0; p < style.length; p++) {
+            const propName = style[p];
+            if (!propName.startsWith("--")) continue;
+            const ok = record(
+              {
+                name: propName,
+                value: style.getPropertyValue(propName).trim(),
+                selector: el === document.documentElement ? "html" : "[style]",
+                href: null,
+                layers: [],
+                conditions: [],
+                active: true,
+                origin: "inline"
+              },
+              { kind: "inline", root: tree.root, host: tree.host, query: null, element: el, pseudo: "" }
+            );
+            if (!ok) break outer;
+          }
+        }
+      }
+    } catch {
+    }
+    try {
+      const running = typeof document.getAnimations === "function" ? document.getAnimations() : [];
+      let animated = 0;
+      for (const anim of running) {
+        if (traversalStopped) break;
+        const effect = anim.effect;
+        const target = effect && typeof effect.getKeyframes === "function" ? effect.target : null;
+        if (!effect || !target) continue;
+        let frames = [];
         try {
-          for (const s of Array.from(root.styleSheets ?? [])) visitSheet(s);
+          frames = effect.getKeyframes();
         } catch {
+          continue;
+        }
+        const cssName = anim.animationName;
+        if (typeof cssName === "string" && keyframesProps.has(cssName)) {
+          frames = frames.concat([Object.fromEntries(keyframesProps.get(cssName))]);
+        }
+        let counted = false;
+        for (const frame of frames) {
+          for (const key of Object.keys(frame)) {
+            if (!key.startsWith("--")) continue;
+            if (!counted) {
+              if (animated >= caps.maxAnimations) {
+                note("cap_scope_search", `stopped after ${caps.maxAnimations} running animations that set custom properties`);
+                traversalStopped = true;
+                break;
+              }
+              animated++;
+              counted = true;
+            }
+            const ok = record(
+              {
+                name: key,
+                value: String(frame[key] ?? "").trim(),
+                selector: "@animation",
+                href: null,
+                layers: [],
+                conditions: [],
+                active: true,
+                origin: "animation"
+              },
+              {
+                kind: "animation",
+                root: target.getRootNode() ?? document,
+                host: null,
+                query: null,
+                element: target,
+                pseudo: effect.pseudoElement ?? ""
+              }
+            );
+            if (!ok) break;
+          }
+          if (traversalStopped) break;
         }
       }
     } catch {
     }
     const expected = (options.expectedNames ?? []).map((n) => n.startsWith("--") ? n : `--${n}`);
-    const names = Array.from(/* @__PURE__ */ new Set([...expected, ...discovered])).slice(0, caps.maxNames);
+    const allNames = Array.from(/* @__PURE__ */ new Set([...expected, ...discovered]));
+    if (allNames.length > caps.maxNames) {
+      note("cap_names", `${allNames.length - caps.maxNames} expected or discovered names beyond the ${caps.maxNames}-name limit were not resolved`);
+    }
+    const names = allNames.slice(0, caps.maxNames);
     const resolved = {};
     const scoped = {};
     const scopes = {};
-    const readOn = (el) => {
+    const styleCaches = /* @__PURE__ */ new Map();
+    const readOn = (el, pseudo = "") => {
+      let cache = styleCaches.get(pseudo);
+      if (!cache) {
+        cache = /* @__PURE__ */ new Map();
+        styleCaches.set(pseudo, cache);
+      }
+      if (cache.has(el)) return cache.get(el) ?? null;
+      let style;
       try {
-        return window.getComputedStyle(el);
+        style = pseudo ? window.getComputedStyle(el, pseudo) : window.getComputedStyle(el);
       } catch {
-        return null;
+        style = null;
+      }
+      cache.set(el, style);
+      return style;
+    };
+    const valueOn = (style, name) => {
+      try {
+        return style.getPropertyValue(name).trim();
+      } catch {
+        return "";
       }
     };
     const rootStyle = readOn(document.documentElement);
     if (rootStyle) {
       for (const name of names) {
-        let value;
-        try {
-          value = rootStyle.getPropertyValue(name).trim();
-        } catch {
-          continue;
-        }
+        const value = valueOn(rootStyle, name);
         if (value === "") continue;
         resolved[name] = value;
         scopes[name] = { kind: "root", selector: ":root" };
       }
     }
+    const pending = new Set(names.filter((n) => !Object.prototype.hasOwnProperty.call(resolved, n)));
+    const unresolvedAtRoot = pending.size;
     const declaringSelectors = /* @__PURE__ */ new Map();
     for (const d of declarations) {
       if (!d.active || !d.selector) continue;
@@ -1131,63 +1502,218 @@
       }
       return scope;
     };
-    const resolveScoped = (el, scope) => {
-      const style = readOn(el);
-      if (!style) return;
-      for (const name of names) {
-        if (Object.prototype.hasOwnProperty.call(resolved, name)) continue;
-        if (Object.prototype.hasOwnProperty.call(scoped, name)) continue;
-        let value;
-        try {
-          value = style.getPropertyValue(name).trim();
-        } catch {
-          continue;
-        }
+    const witness = (name, value, scope) => {
+      scoped[name] = { value, scope };
+      scopes[name] = scope;
+      pending.delete(name);
+    };
+    const probe = (el, wanted, scopeFor, pseudo = "") => {
+      const style = readOn(el, pseudo);
+      if (!style) return 0;
+      let found = 0;
+      for (const name of wanted) {
+        if (!pending.has(name)) continue;
+        const value = valueOn(style, name);
         if (value === "") continue;
-        const attributed = attribute(el, name, scope);
-        scoped[name] = { value, scope: attributed };
-        scopes[name] = attributed;
+        witness(name, value, scopeFor(name));
+        found++;
       }
+      return found;
     };
-    const scopeTargets = [];
-    const pushTarget = (el, scope) => {
-      if (!el) return;
-      if (el === document.documentElement) return;
-      if (scopeTargets.length >= caps.maxElements) return;
-      if (scopeTargets.some((t) => t.el === el)) return;
-      scopeTargets.push({ el, scope });
+    const preferred = [];
+    const seenPreferred = /* @__PURE__ */ new Set();
+    const addPreferred = (el, scope) => {
+      if (!el || el === document.documentElement || seenPreferred.has(el)) return;
+      if (preferred.length >= caps.maxElements) return;
+      seenPreferred.add(el);
+      preferred.push({ el, scope });
     };
-    pushTarget(document.body, { kind: "body", selector: "body" });
-    const themeSelectors = THEME_SCOPE_SELECTORS.concat(options.scopeSelectors ?? []);
-    for (const selector of themeSelectors) {
+    addPreferred(document.body, { kind: "body", selector: "body" });
+    for (const selector of THEME_SCOPE_SELECTORS.concat(options.scopeSelectors ?? [])) {
       try {
-        for (const el of Array.from(document.querySelectorAll(selector))) {
-          pushTarget(el, { kind: "scoped", selector });
+        const list = document.querySelectorAll(selector);
+        for (let i = 0; i < list.length && preferred.length < caps.maxElements; i++) {
+          addPreferred(list[i], { kind: "scoped", selector });
         }
       } catch {
       }
     }
-    for (const selector of scopeSelectorsFound) {
-      if (scopeTargets.length >= caps.maxElements) break;
-      try {
-        for (const el of Array.from(document.querySelectorAll(selector))) {
-          pushTarget(el, { kind: "scoped", selector });
-        }
-      } catch {
+    for (const { el, scope } of preferred) {
+      if (pending.size === 0 || outOfTime()) break;
+      probe(el, Array.from(pending), (name) => attribute(el, name, scope));
+    }
+    const groups = /* @__PURE__ */ new Map();
+    const nodeIds = /* @__PURE__ */ new Map();
+    const idOf = (n) => {
+      let id = nodeIds.get(n);
+      if (id === void 0) {
+        id = nodeIds.size;
+        nodeIds.set(n, id);
       }
+      return id;
+    };
+    const candidateNames = /* @__PURE__ */ new Set();
+    for (let i = 0; i < declarations.length; i++) {
+      const d = declarations[i];
+      const site = sites[i];
+      if (site.kind === "none") continue;
+      if (!d.active || !pending.has(d.name)) continue;
+      if (d.value === "" || CSS_WIDE_KEYWORD.test(d.value)) continue;
+      candidateNames.add(d.name);
+      const key = site.kind === "rule" ? `r${idOf(site.root)}|${site.query === null ? `?${d.selector}` : `q${site.query}`}` : `${site.kind[0]}${idOf(site.element)}|${site.pseudo}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = { selector: site.query ?? d.selector, site, names: /* @__PURE__ */ new Set() };
+        groups.set(key, group);
+      }
+      group.names.add(d.name);
     }
-    for (const host of shadowHosts) {
-      pushTarget(host, { kind: "shadow", selector: host.tagName.toLowerCase() });
-    }
-    if (scopeTargets.length >= caps.maxElements) {
-      note("cap_elements", `stopped after ${caps.maxElements} scope elements`);
-    }
-    for (const target of scopeTargets) {
+    const unexamined = /* @__PURE__ */ new Map();
+    const leaveUnexamined = (names2, kind) => {
+      for (const n of names2) if (pending.has(n) && !unexamined.has(n)) unexamined.set(n, kind);
+    };
+    let useElements = null;
+    const hasUseElements = () => {
+      if (useElements === null) {
+        try {
+          useElements = document.querySelector("use") !== null;
+        } catch {
+          useElements = true;
+        }
+      }
+      return useElements;
+    };
+    let selectorsQueried = 0;
+    let probes = 0;
+    let searchStopped = null;
+    const stillWanted = (g) => Array.from(g.names).filter((n) => pending.has(n));
+    for (const group of groups.values()) {
+      let wanted = stillWanted(group);
+      if (wanted.length === 0) continue;
+      if (searchStopped) {
+        leaveUnexamined(wanted, searchStopped);
+        continue;
+      }
       if (outOfTime()) {
         note("cap_time", `stopped after ${caps.maxMs}ms during resolution`);
-        break;
+        searchStopped = "cap_time";
+        leaveUnexamined(wanted, "cap_time");
+        continue;
       }
-      resolveScoped(target.el, target.scope);
+      if (selectorsQueried >= caps.maxScopeSelectors) {
+        searchStopped = "cap_scope_search";
+        leaveUnexamined(wanted, "cap_scope_search");
+        continue;
+      }
+      selectorsQueried++;
+      const { site } = group;
+      const shadowScope = site.host ? { kind: "shadow", selector: site.host.tagName.toLowerCase() } : null;
+      const scopeOn = (el) => (name) => {
+        if (shadowScope) return shadowScope;
+        const own = { kind: "scoped", selector: group.selector };
+        return site.kind === "rule" ? attribute(el, name, own) : own;
+      };
+      const sources = [];
+      const pseudoParts = [];
+      let uninspectable = false;
+      if (site.kind !== "rule") {
+        if (site.element) sources.push({ els: [site.element], pseudo: site.pseudo });
+      } else if (site.query === null) {
+        uninspectable = true;
+      } else {
+        const queryable = [];
+        for (const part of splitSelectorList(site.query)) {
+          if (!site.host && ROOT_ONLY_PART.test(part)) continue;
+          if (site.host && HOST_ONLY_PART.test(part)) {
+            sources.push({ els: [site.host], pseudo: "" });
+            continue;
+          }
+          if (SHADOW_ONLY_PART.test(part)) {
+            uninspectable = true;
+            continue;
+          }
+          if (PSEUDO_ELEMENT_PART.test(part)) {
+            const split = splitPseudoElementPart(part);
+            if (!split) {
+              uninspectable = true;
+              continue;
+            }
+            pseudoParts.push({ origin: split.origin, pseudo: split.pseudo });
+            continue;
+          }
+          queryable.push(part);
+        }
+        if (queryable.length > 0) {
+          try {
+            sources.push({ els: site.root.querySelectorAll(queryable.join(", ")), pseudo: "" });
+          } catch {
+            for (const part of queryable) {
+              try {
+                sources.push({ els: site.root.querySelectorAll(part), pseudo: "" });
+              } catch {
+                uninspectable = true;
+              }
+            }
+          }
+        }
+        for (const { origin, pseudo } of pseudoParts) {
+          try {
+            sources.push({ els: site.root.querySelectorAll(origin), pseudo });
+          } catch {
+            uninspectable = true;
+          }
+        }
+      }
+      let misses = 0;
+      let stoppedBy = null;
+      scan: for (const source of sources) {
+        for (let i = 0; i < source.els.length; i++) {
+          if (wanted.length === 0) break scan;
+          const el = source.els[i];
+          if (el === document.documentElement && source.pseudo === "") continue;
+          if (probes >= caps.maxScopeProbes) {
+            stoppedBy = searchStopped = "cap_scope_search";
+            break scan;
+          }
+          if (misses >= caps.maxProbesPerSelector) {
+            stoppedBy = "cap_scope_search";
+            break scan;
+          }
+          if (outOfTime()) {
+            note("cap_time", `stopped after ${caps.maxMs}ms during resolution`);
+            stoppedBy = searchStopped = "cap_time";
+            break scan;
+          }
+          probes++;
+          if (probe(el, wanted, scopeOn(el), source.pseudo) > 0) {
+            misses = 0;
+            wanted = wanted.filter((n) => pending.has(n));
+          } else {
+            misses++;
+          }
+        }
+      }
+      if (!uninspectable && site.kind === "rule" && site.query !== null && USE_ANCESTRY.test(site.query) && hasUseElements()) {
+        uninspectable = true;
+      }
+      if (wanted.length > 0) {
+        if (stoppedBy) leaveUnexamined(wanted, stoppedBy);
+        else if (uninspectable) leaveUnexamined(wanted, "scope_uninspectable");
+      }
+    }
+    const gaps = /* @__PURE__ */ new Map();
+    for (const [name, kind] of unexamined) {
+      if (!pending.has(name)) continue;
+      const list = gaps.get(kind);
+      if (list) list.push(name);
+      else gaps.set(kind, [name]);
+    }
+    let unexaminedCount = 0;
+    for (const [kind, list] of gaps) {
+      unexaminedCount += list.length;
+      const sample = list.slice(0, 3).join(", ");
+      const why = kind === "scope_uninspectable" ? "is declared only where script cannot evaluate it (a vendor pseudo-element, ::slotted/::part, an implicit @scope, an unmodelled at-rule)" : kind === "cap_time" ? `was not searched before the ${caps.maxMs}ms limit` : `was not fully searched (limits: ${caps.maxScopeSelectors} selectors, ${caps.maxScopeProbes} element reads, ${caps.maxProbesPerSelector} consecutive misses per selector)`;
+      note(kind, `${list.length} custom ${list.length === 1 ? "property" : "properties"} (${sample}${list.length > 3 ? ", \u2026" : ""}) ${why}`);
     }
     let completeness;
     if (provenanceUnverified || truncated) {
@@ -1197,12 +1723,40 @@
     } else {
       completeness = "complete";
     }
-    return { resolved, scoped, scopes, declarations, warnings, completeness, provenanceUnverified };
+    let witnessedCount = 0;
+    for (const n of candidateNames) if (!pending.has(n)) witnessedCount++;
+    let exhaustedCount = 0;
+    for (const n of candidateNames) if (pending.has(n) && !unexamined.has(n)) exhaustedCount++;
+    const stats = {
+      stylesheets: sheetsSeen,
+      rules: rulesSeen,
+      declarations: declarations.length,
+      names: names.length,
+      unresolvedAtRoot,
+      candidateNames: candidateNames.size,
+      witnessed: witnessedCount,
+      exhausted: exhaustedCount,
+      unexamined: unexaminedCount,
+      selectorsQueried,
+      probes,
+      inlineElements,
+      shadowHosts: shadowHosts.length,
+      ms: Date.now() - startedAt
+    };
+    return { resolved, scoped, scopes, declarations, warnings, completeness, provenanceUnverified, stats };
   }
   function captureCssVariables(expectedNames) {
     return captureCssVariableState({ expectedNames }).resolved;
   }
 
   // src/snapshot-bundle.ts
-  window.__fidel_snapshot = { snapshotDOM, capturePseudoStateStyles, isInteractiveElement, captureCssVariables, captureCssVariableState };
+  window.__fidel_snapshot = {
+    snapshotDOM,
+    capturePseudoStateStyles,
+    isInteractiveElement,
+    captureCssVariables,
+    captureCssVariableState,
+    recordScrollPositions,
+    restoreScrollPositions
+  };
 })();

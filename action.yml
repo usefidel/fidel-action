@@ -19,6 +19,9 @@ inputs:
     # Deliberately NO default. An unset input reads as '' and must stay
     # distinguishable from an explicit 'false', or every existing consumer of
     # fail-on-score would look like a conflicting configuration and be ignored.
+  viewport-from-frame:
+    description: 'When a check does not set a viewport, open the browser at the Figma frame width. off (default), shadow, or on. FIDEL_VIEWPORT_FROM_FRAME is the same switch.'
+    required: false
   fail-on-score:
     description: 'DEPRECATED, use fail-on-drift. Fail the action if any successful check scores below this value (0-100). Ignored when fail-on-drift is set.'
     required: false

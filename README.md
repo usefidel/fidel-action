@@ -122,6 +122,21 @@ character), and `{a,b,c}` brace expansion.
 | `{sha}` | Head commit SHA. |
 | `${VAR}` / `$VAR` | Environment variable from the workflow step. |
 
+Variables that look like credentials are never expanded. That covers names containing
+`TOKEN`, `SECRET`, `PASSWORD`, `JWT`, `PRIVATE`, `COOKIE`, `WEBHOOK` or `DATABASE`, names
+with a `KEY`, `AUTH`, `SESSION`, `PAT`, `URI` or `DB` segment, names starting with `FIGMA_`,
+`SUPABASE_`, `FIDEL_`, `ACTIONS_`, `RUNNER_`, `INPUT_` or `AWS_`, and values shaped like a
+token, a JWT, a private key or a URL with a password. Referencing one fails the run with an
+error that names the variable (never its value): the resolved URL is fetched, stored with the
+run and linked from the pull-request comment, so it must not carry a secret. On the Fidel
+GitHub App, environment variables are not available at all; use `{pr}`, `{sha}` and
+`{branch}`.
+
+**This is a heuristic, not a guarantee.** It recognises credentials by name and value shape
+only. A secret stored under an ordinary-looking name (for example `PREVIEW_HOST`) with an
+ordinary-looking value is still expanded. Reference only variables whose values are safe to
+appear in a fetched URL, a stored run and a pull-request comment.
+
 ```json
 { "url": "https://pr-{pr}.preview.example.com/" }
 ```
